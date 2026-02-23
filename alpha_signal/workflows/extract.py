@@ -3,12 +3,12 @@
 Usage::
 
     # Estimate cost (no API calls, free)
-    pyflyte run src/alpha_signal/workflows/extract.py estimate_wf \
+    pyflyte run alpha_signal/workflows/extract.py estimate_wf \
         --cache_path articles.db \
         --model gpt-4o-mini
 
     # Run extraction (costs money)
-    pyflyte run src/alpha_signal/workflows/extract.py extract_wf \
+    pyflyte run alpha_signal/workflows/extract.py extract_wf \
         --cache_path articles.db \
         --model gpt-4o-mini \
         --budget_usd 0.50 \

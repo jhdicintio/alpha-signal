@@ -2,7 +2,7 @@
 
 Usage::
 
-    pyflyte run src/alpha_signal/workflows/pipeline.py pipeline_wf \
+    pyflyte run alpha_signal/workflows/pipeline.py pipeline_wf \
         --query "solid state batteries" \
         --sources "arxiv,openalex,europe_pmc" \
         --max_results_per_source 20 \

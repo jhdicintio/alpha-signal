@@ -2,20 +2,20 @@
 
 Usage::
 
-    pyflyte run src/alpha_signal/workflows/ingest.py ingest_wf \
+    pyflyte run alpha_signal/workflows/ingest.py ingest_wf \
         --query "solid state batteries" \
         --sources "arxiv,openalex,europe_pmc" \
         --max_results_per_source 20 \
         --cache_path articles.db
 
     # Restrict to a date range (optional):
-    pyflyte run src/alpha_signal/workflows/ingest.py ingest_wf \
+    pyflyte run alpha_signal/workflows/ingest.py ingest_wf \
         --query "quantum computing" \
         --date_from 2024-01-01 \
         --date_to 2024-12-31
 
     # Single day:
-    pyflyte run src/alpha_signal/workflows/ingest.py ingest_wf \
+    pyflyte run alpha_signal/workflows/ingest.py ingest_wf \
         --query "battery" --date_from 2024-06-15 --date_to 2024-06-15
 """
 

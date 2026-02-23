@@ -2,9 +2,6 @@
 name = "alpha-signal"
 version = "0.1.0"
 description = "Turn scientific articles into actionable trading insights using LLMs"
-authors = [
-    {name = "Jack DiCintio"}
-]
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -21,8 +18,18 @@ dependencies = [
     "tiktoken (>=0.7.0)",
 ]
 
+[[project.authors]]
+name = "Jack DiCintio"
+
+[project.urls]
+repository = "https://github.com/jackdicintio/alpha-signal"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
 [tool.poetry]
-packages = [{include = "alpha_signal", from = "src"}]
+packages = [{include = "alpha_signal"}]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
@@ -37,7 +44,3 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
