@@ -34,6 +34,7 @@ packages = [{include = "alpha_signal"}]
 [tool.poetry.group.dev.dependencies]
 pytest = ">=8.0"
 ruff = ">=0.9"
+pre-commit = ">=4.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
