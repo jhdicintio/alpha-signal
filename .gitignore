@@ -1,0 +1,39 @@
+# Environment & secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing & tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# SQLite caches (generated at runtime)
+*.db
+
+# Extraction outputs (generated at runtime)
+extractions*.json
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,43 @@
+[project]
+name = "alpha-signal"
+version = "0.1.0"
+description = "Turn scientific articles into actionable trading insights using LLMs"
+authors = [
+    {name = "Jack DiCintio"}
+]
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "flytekit (>=1.16.14,<2.0.0)",
+    "rioxarray (>=0.21.0,<0.22.0)",
+    "rasterio (>=1.5.0,<2.0.0)",
+    "zarr (>=3.1.5,<4.0.0)",
+    "gcsfs (>=2026.2.0,<2027.0.0)",
+    "numpy (>=2.4.2,<3.0.0)",
+    "dask (>=2026.1.2,<2027.0.0)",
+    "httpx (>=0.28.0)",
+    "openai (>=1.60.0)",
+    "pydantic (>=2.0.0)",
+    "tiktoken (>=0.7.0)",
+]
+
+[tool.poetry]
+packages = [{include = "alpha_signal", from = "src"}]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+ruff = ">=0.9"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: hits live APIs (deselect with -m 'not integration')",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

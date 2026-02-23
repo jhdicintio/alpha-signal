@@ -1,0 +1,97 @@
+version: "3"
+
+vars:
+  IMAGE_NAME: alpha-signal
+  IMAGE_TAG: latest
+
+tasks:
+  install:
+    desc: Install all project dependencies
+    cmds:
+      - poetry install
+
+  test:
+    desc: Run the test suite (unit tests only by default)
+    cmds:
+      - poetry run pytest tests/unit/ -v {{.CLI_ARGS}}
+
+  test-all:
+    desc: Run all tests including integration (hits live APIs)
+    cmds:
+      - poetry run pytest -v {{.CLI_ARGS}}
+
+  test-integration:
+    desc: Run only integration tests
+    cmds:
+      - poetry run pytest -m integration -v {{.CLI_ARGS}}
+
+  lint:
+    desc: Run linter
+    cmds:
+      - poetry run ruff check src/ tests/
+
+  fmt:
+    desc: Auto-format code
+    cmds:
+      - poetry run ruff format src/ tests/
+      - poetry run ruff check --fix src/ tests/
+
+  # -- Flyte workflows -------------------------------------------------------
+
+  ingest:
+    desc: Ingest articles from scientific sources into local cache
+    cmds:
+      - >-
+        poetry run pyflyte run
+        src/alpha_signal/workflows/ingest.py ingest_wf
+        --query "{{.QUERY}}"
+        --sources "{{.SOURCES | default "arxiv,openalex,europe_pmc"}}"
+        --max_results_per_source {{.MAX_RESULTS | default "20"}}
+        --cache_path {{.CACHE_PATH | default "articles.db"}}
+        {{if .DATE_FROM}}--date_from "{{.DATE_FROM}}" {{end}}
+        {{if .DATE_TO}}--date_to "{{.DATE_TO}}" {{end}}
+    requires:
+      vars: [QUERY]
+
+  estimate:
+    desc: Estimate extraction cost (free — no API calls)
+    cmds:
+      - >-
+        poetry run pyflyte run
+        src/alpha_signal/workflows/extract.py estimate_wf
+        --cache_path {{.CACHE_PATH | default "articles.db"}}
+        --model {{.MODEL | default "gpt-4o-mini"}}
+
+  extract:
+    desc: Run LLM extraction on cached articles
+    cmds:
+      - >-
+        poetry run pyflyte run
+        src/alpha_signal/workflows/extract.py extract_wf
+        --cache_path {{.CACHE_PATH | default "articles.db"}}
+        --model {{.MODEL | default "gpt-4o-mini"}}
+        --budget_usd {{.BUDGET | default "1.0"}}
+        --output_path {{.OUTPUT | default "extractions.json"}}
+
+  pipeline:
+    desc: Full pipeline — ingest then extract
+    cmds:
+      - >-
+        poetry run pyflyte run
+        src/alpha_signal/workflows/pipeline.py pipeline_wf
+        --query "{{.QUERY}}"
+        --sources "{{.SOURCES | default "arxiv,openalex,europe_pmc"}}"
+        --max_results_per_source {{.MAX_RESULTS | default "20"}}
+        {{if .DATE_FROM}}--date_from "{{.DATE_FROM}}" {{end}}
+        {{if .DATE_TO}}--date_to "{{.DATE_TO}}" {{end}}
+        --model {{.MODEL | default "gpt-4o-mini"}}
+        --budget_usd {{.BUDGET | default "1.0"}}
+    requires:
+      vars: [QUERY]
+
+  # -- Docker ----------------------------------------------------------------
+
+  docker-build:
+    desc: Build the Docker image
+    cmds:
+      - docker build -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
