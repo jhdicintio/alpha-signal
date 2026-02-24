@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import MagicMock
 
+import pytest
+
 from alpha_signal.models.articles import Article
 from alpha_signal.services.ingestion import deduplicate, fetch, search
 
@@ -33,16 +35,20 @@ class TestSearch:
         src_b.name = "b"
         src_b.search.return_value = [_make_article(source="b", source_id="2")]
 
-        results = search("test", [src_a, src_b], max_results_per_source=5)
+        results = search(
+            sources=[src_a, src_b],
+            query="test",
+            max_results_per_source=5,
+        )
 
         assert len(results) == 2
         assert results[0].source == "a"
         assert results[1].source == "b"
         src_a.search.assert_called_once_with(
-            "test", max_results=5, date_from=None, date_to=None
+            query="test", max_results=5, date_from=None, date_to=None
         )
         src_b.search.assert_called_once_with(
-            "test", max_results=5, date_from=None, date_to=None
+            query="test", max_results=5, date_from=None, date_to=None
         )
 
     def test_search_passes_date_range_to_sources(self):
@@ -53,19 +59,25 @@ class TestSearch:
         date_to = date(2024, 12, 31)
 
         search(
-            "battery",
-            [src],
+            sources=[src],
+            query="battery",
             max_results_per_source=10,
             date_from=date_from,
             date_to=date_to,
         )
 
         src.search.assert_called_once_with(
-            "battery",
+            query="battery",
             max_results=10,
             date_from=date_from,
             date_to=date_to,
         )
+
+    def test_raises_when_no_query_nor_dates(self):
+        src = MagicMock()
+        src.name = "s"
+        with pytest.raises(ValueError, match="Either query or at least one"):
+            search(sources=[src])
 
     def test_skips_failing_source(self):
         good = MagicMock()
@@ -76,13 +88,13 @@ class TestSearch:
         bad.name = "bad"
         bad.search.side_effect = ConnectionError("timeout")
 
-        results = search("test", [bad, good])
+        results = search(sources=[bad, good], query="test")
 
         assert len(results) == 1
         assert results[0].source == "good"
 
     def test_empty_sources(self):
-        results = search("test", [])
+        results = search(sources=[], query="test")
         assert results == []
 
 

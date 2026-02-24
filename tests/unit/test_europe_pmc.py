@@ -41,7 +41,7 @@ class TestEuropePMCSearch:
         mock_get.return_value = make_response(json_data=SEARCH_RESPONSE)
 
         with EuropePMCSource() as src:
-            results = src.search("CRISPR agriculture")
+            results = src.search(query="CRISPR agriculture")
 
         assert len(results) == 1
         art = results[0]
@@ -62,7 +62,7 @@ class TestEuropePMCSearch:
         mock_get.return_value = make_response(json_data={"resultList": {"result": []}})
 
         with EuropePMCSource() as src:
-            results = src.search("xyznonexistent")
+            results = src.search(query="xyznonexistent")
 
         assert results == []
 
@@ -71,7 +71,7 @@ class TestEuropePMCSearch:
         mock_get.return_value = make_response(json_data={"resultList": {"result": []}})
 
         with EuropePMCSource() as src:
-            src.search("test", max_results=500)
+            src.search(query="test", max_results=500)
 
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["pageSize"] == 100
@@ -82,7 +82,7 @@ class TestEuropePMCSearch:
 
         with EuropePMCSource() as src:
             src.search(
-                "CRISPR",
+                query="CRISPR",
                 date_from=date(2024, 2, 1),
                 date_to=date(2024, 2, 29),
             )
@@ -124,7 +124,7 @@ class TestEuropePMCEdgeCases:
         )
 
         with EuropePMCSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].publication_date == date(2024, 5, 1)
 
@@ -137,7 +137,7 @@ class TestEuropePMCEdgeCases:
         )
 
         with EuropePMCSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].publication_date is None
 
@@ -150,7 +150,7 @@ class TestEuropePMCEdgeCases:
         )
 
         with EuropePMCSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].categories == []
 
@@ -159,6 +159,6 @@ class TestEuropePMCEdgeCases:
         mock_get.return_value = make_response(json_data=SEARCH_RESPONSE)
 
         with EuropePMCSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].url == "https://europepmc.org/article/MED/12345678"

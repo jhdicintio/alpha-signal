@@ -40,7 +40,7 @@ class TestSemanticScholarSearch:
         mock_get.return_value = make_response(json_data=SEARCH_RESPONSE)
 
         with SemanticScholarSource() as src:
-            results = src.search("solid state batteries")
+            results = src.search(query="solid state batteries")
 
         assert len(results) == 1
         art = results[0]
@@ -60,7 +60,7 @@ class TestSemanticScholarSearch:
         mock_get.return_value = make_response(json_data={"total": 0, "data": []})
 
         with SemanticScholarSource() as src:
-            results = src.search("xyznonexistent")
+            results = src.search(query="xyznonexistent")
 
         assert results == []
 
@@ -69,7 +69,7 @@ class TestSemanticScholarSearch:
         mock_get.return_value = make_response(json_data={"total": 0, "data": []})
 
         with SemanticScholarSource() as src:
-            src.search("test", max_results=500)
+            src.search(query="test", max_results=500)
 
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["limit"] == 100
@@ -80,7 +80,7 @@ class TestSemanticScholarSearch:
 
         with SemanticScholarSource() as src:
             results = src.search(
-                "battery",
+                query="battery",
                 date_from=date(2024, 1, 1),
                 date_to=date(2024, 12, 31),
             )
@@ -96,7 +96,7 @@ class TestSemanticScholarSearch:
 
         with SemanticScholarSource() as src:
             results = src.search(
-                "battery",
+                query="battery",
                 date_from=date(2024, 7, 1),
                 date_to=date(2024, 12, 31),
             )
@@ -135,7 +135,7 @@ class TestSemanticScholarEdgeCases:
         mock_get.return_value = make_response(json_data={"total": 1, "data": [sparse]})
 
         with SemanticScholarSource() as src:
-            results = src.search("sparse")
+            results = src.search(query="sparse")
 
         art = results[0]
         assert art.abstract is None
@@ -152,6 +152,6 @@ class TestSemanticScholarEdgeCases:
         mock_get.return_value = make_response(json_data={"total": 1, "data": [bad_date]})
 
         with SemanticScholarSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].publication_date is None

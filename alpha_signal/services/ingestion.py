@@ -17,14 +17,22 @@ logger = logging.getLogger(__name__)
 
 
 def search(
-    query: str,
     sources: Iterable[BaseSource],
     *,
-    max_results_per_source: int = 10,
+    query: str | None = None,
+    max_results_per_source: int | None = 10,
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> list[Article]:
-    """Search every *source* for *query* and return a flat list of results.
+    """Search every *source* and return a flat list of results.
+
+    Either *query* or at least one of *date_from* / *date_to* must be set.
+    When *query* is None and dates are set, sources return all articles
+    in that date range (subject to *max_results_per_source*).
+
+    When *max_results_per_source* is None, each source returns all matching
+    results (paginates until exhausted). When it is an int, each source
+    returns at most that many.
 
     If *date_from* or *date_to* are set, they are passed to each source to
     restrict results to that publication/submission date range (single day:
@@ -35,16 +43,23 @@ def search(
     Sources that raise are logged and skipped so one flaky API doesn't
     take down the whole pipeline.
     """
+    if query is None and not (date_from or date_to):
+        raise ValueError("Either query or at least one of date_from/date_to must be set.")
     articles: list[Article] = []
     for source in sources:
         try:
             hits = source.search(
-                query,
+                query=query,
                 max_results=max_results_per_source,
                 date_from=date_from,
                 date_to=date_to,
             )
-            logger.info("%s returned %d results for %r", source.name, len(hits), query)
+            logger.info(
+                "%s returned %d results%s",
+                source.name,
+                len(hits),
+                f" for {query!r}" if query else " (date range)",
+            )
             articles.extend(hits)
         except Exception:
             logger.exception("search failed for source %s", source.name)

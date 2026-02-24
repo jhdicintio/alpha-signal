@@ -24,29 +24,50 @@ class SpringerSource(BaseSource):
 
     def search(
         self,
-        query: str,
         *,
-        max_results: int = 10,
+        query: str | None = None,
+        max_results: int | None = 10,
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[Article]:
-        params: dict = {"q": query, "p": min(max_results, 50), "api_key": self._api_key}
-        if date_from is not None:
-            params["datefrom"] = date_from.isoformat()
-        if date_to is not None:
-            params["dateto"] = date_to.isoformat()
+        if query is None and not (date_from or date_to):
+            raise ValueError("Either query or at least one of date_from/date_to is required.")
+        q = query if query is not None else "*"
+        page_size = 50
+        all_articles: list[Article] = []
+        start = 1
 
-        resp = self._get("/json", params=params)
-        articles = [self._to_article(rec) for rec in resp.json().get("records", [])]
-        if date_from is not None or date_to is not None:
-            articles = [
-                a
-                for a in articles
-                if a.publication_date is not None
-                and (date_from is None or a.publication_date >= date_from)
-                and (date_to is None or a.publication_date <= date_to)
-            ]
-        return articles
+        while True:
+            want = page_size if max_results is None else min(max_results - len(all_articles), page_size)
+            if want <= 0:
+                break
+            params: dict = {"q": q, "p": want, "s": start, "api_key": self._api_key}
+            if date_from is not None:
+                params["datefrom"] = date_from.isoformat()
+            if date_to is not None:
+                params["dateto"] = date_to.isoformat()
+
+            resp = self._get("/json", params=params)
+            records = resp.json().get("records", [])
+            batch = [self._to_article(rec) for rec in records]
+            if date_from is not None or date_to is not None:
+                batch = [
+                    a
+                    for a in batch
+                    if a.publication_date is not None
+                    and (date_from is None or a.publication_date >= date_from)
+                    and (date_to is None or a.publication_date <= date_to)
+                ]
+            all_articles.extend(batch)
+            if len(records) < want:
+                break
+            if max_results is not None and len(all_articles) >= max_results:
+                break
+            start += len(records)
+
+        if max_results is not None:
+            all_articles = all_articles[:max_results]
+        return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:
         resp = self._get(

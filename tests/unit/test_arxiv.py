@@ -51,7 +51,7 @@ class TestArxivSearch:
         mock_get.return_value = make_response(text=ATOM_FEED)
 
         with ArxivSource() as src:
-            results = src.search("solid state batteries")
+            results = src.search(query="solid state batteries")
 
         assert len(results) == 1
         art = results[0]
@@ -72,7 +72,7 @@ class TestArxivSearch:
         mock_get.return_value = make_response(text=EMPTY_FEED)
 
         with ArxivSource() as src:
-            results = src.search("xyznonexistent")
+            results = src.search(query="xyznonexistent")
 
         assert results == []
 
@@ -81,7 +81,7 @@ class TestArxivSearch:
         mock_get.return_value = make_response(text=EMPTY_FEED)
 
         with ArxivSource() as src:
-            src.search("quantum computing", max_results=25)
+            src.search(query="quantum computing", max_results=25)
 
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["search_query"] == "all:quantum computing"
@@ -93,7 +93,7 @@ class TestArxivSearch:
 
         with ArxivSource() as src:
             src.search(
-                "battery",
+                query="battery",
                 max_results=10,
                 date_from=date(2024, 6, 1),
                 date_to=date(2024, 6, 30),
@@ -109,7 +109,7 @@ class TestArxivSearch:
 
         with ArxivSource() as src:
             src.search(
-                "quantum",
+                query="quantum",
                 date_from=date(2024, 3, 15),
                 date_to=date(2024, 3, 15),
             )
@@ -122,7 +122,7 @@ class TestArxivSearch:
         mock_get.return_value = make_response(text=EMPTY_FEED)
 
         with ArxivSource() as src:
-            src.search("test", max_results=500)
+            src.search(query="test", max_results=500)
 
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["max_results"] == 100
@@ -155,7 +155,7 @@ class TestArxivEdgeCases:
         mock_get.return_value = make_response(text=ATOM_FEED)
 
         with ArxivSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         art = results[0]
         assert "\n" not in art.title
@@ -167,7 +167,7 @@ class TestArxivEdgeCases:
         mock_get.return_value = make_response(text=ENTRY_NO_ID)
 
         with ArxivSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results == []
 
@@ -179,7 +179,7 @@ class TestArxivEdgeCases:
         mock_get.return_value = make_response(text=feed)
 
         with ArxivSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].doi is None
 
@@ -192,6 +192,6 @@ class TestArxivEdgeCases:
         mock_get.return_value = make_response(text=feed)
 
         with ArxivSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].url == "http://arxiv.org/abs/2401.12345v1"

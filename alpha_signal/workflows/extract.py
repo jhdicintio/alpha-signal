@@ -18,6 +18,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 
 from flytekit import task, workflow
 
@@ -27,6 +28,8 @@ from alpha_signal.models.articles import Article
 from alpha_signal.models.extractions import ArticleExtraction
 from alpha_signal.monitoring.costs import CostTracker
 from alpha_signal.services.extraction import extract_batch
+
+logger = logging.getLogger(__name__)
 
 
 @task
@@ -43,7 +46,7 @@ def estimate_cost(
 
     if not articles:
         msg = "No articles in cache. Run the ingest workflow first."
-        print(msg)
+        logger.warning("%s", msg)
         return msg
 
     extractor = OpenAIExtractor(api_key="unused", model=model)
@@ -60,7 +63,7 @@ def estimate_cost(
         f"  Estimated cost: ${estimate.estimated_cost_usd:.4f}",
     ]
     summary = "\n".join(lines)
-    print(summary)
+    logger.info("%s", summary)
     return summary
 
 
@@ -80,10 +83,15 @@ def extract(
 
     if not articles:
         msg = "No articles in cache. Run the ingest workflow first."
-        print(msg)
+        logger.warning("%s", msg)
         return msg
 
-    print(f"Extracting {len(articles)} articles with {model} (budget: ${budget_usd:.2f})")
+    logger.info(
+        "Extracting %d articles with %s (budget: $%.2f)",
+        len(articles),
+        model,
+        budget_usd,
+    )
 
     tracker = CostTracker(model=model, budget_usd=budget_usd)
     extractor = OpenAIExtractor(model=model, cost_tracker=tracker)
@@ -96,10 +104,10 @@ def extract(
     )
 
     _write_results(results, output_path)
-    print(f"Wrote {len(results)} extractions to {output_path}")
+    logger.info("Wrote %d extractions to %s", len(results), output_path)
 
     summary = tracker.summary()
-    print(f"Cost: {summary}")
+    logger.info("Cost: %s", summary)
     return summary
 
 

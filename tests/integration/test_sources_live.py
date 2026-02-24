@@ -53,7 +53,7 @@ class TestSemanticScholarLive:
     @_skip_on_rate_limit
     def test_search(self):
         with SemanticScholarSource() as src:
-            results = src.search("machine learning", max_results=3)
+            results = src.search(query="machine learning", max_results=3)
 
         assert len(results) > 0
         for art in results:
@@ -67,7 +67,7 @@ class TestSemanticScholarLive:
         date_to = date(2024, 12, 31)
         with SemanticScholarSource() as src:
             results = src.search(
-                "transformer neural network",
+                query="transformer neural network",
                 max_results=20,
                 date_from=date_from,
                 date_to=date_to,
@@ -91,7 +91,7 @@ class TestSemanticScholarLive:
 class TestOpenAlexLive:
     def test_search(self):
         with OpenAlexSource() as src:
-            results = src.search("quantum computing", max_results=3)
+            results = src.search(query="quantum computing", max_results=3)
 
         assert len(results) > 0
         for art in results:
@@ -104,7 +104,7 @@ class TestOpenAlexLive:
         date_to = date(2024, 12, 31)
         with OpenAlexSource() as src:
             results = src.search(
-                "perovskite solar",
+                query="perovskite solar",
                 max_results=20,
                 date_from=date_from,
                 date_to=date_to,
@@ -126,7 +126,7 @@ class TestOpenAlexLive:
 class TestArxivLive:
     def test_search(self):
         with ArxivSource() as src:
-            results = src.search("neural network", max_results=3)
+            results = src.search(query="neural network", max_results=3)
 
         assert len(results) > 0
         for art in results:
@@ -140,7 +140,7 @@ class TestArxivLive:
         date_to = date(2024, 12, 31)
         with ArxivSource() as src:
             results = src.search(
-                "machine learning",
+                query="machine learning",
                 max_results=20,
                 date_from=date_from,
                 date_to=date_to,
@@ -165,7 +165,7 @@ class TestArxivLive:
 class TestEuropePMCLive:
     def test_search(self):
         with EuropePMCSource() as src:
-            results = src.search("CRISPR", max_results=3)
+            results = src.search(query="CRISPR", max_results=3)
 
         assert len(results) > 0
         for art in results:
@@ -208,8 +208,8 @@ class TestIngestionSearchDateRangeLive:
         sources = [ArxivSource(), OpenAlexSource()]
 
         articles = search(
-            "battery",
-            sources,
+            sources=sources,
+            query="battery",
             max_results_per_source=15,
             date_from=date_from,
             date_to=date_to,
@@ -228,7 +228,7 @@ class TestIngestionSearchDateRangeLive:
     def test_search_without_date_range_returns_articles(self):
         """Sanity check: search without date filter still returns results."""
         sources = [ArxivSource(), OpenAlexSource()]
-        articles = search("quantum", sources, max_results_per_source=5)
+        articles = search(sources=sources, query="quantum", max_results_per_source=5)
         assert len(articles) > 0
         for art in articles:
             _assert_valid_article(art)

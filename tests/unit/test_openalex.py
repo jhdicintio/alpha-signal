@@ -46,7 +46,7 @@ class TestOpenAlexSearch:
         mock_get.return_value = make_response(json_data=SEARCH_RESPONSE)
 
         with OpenAlexSource() as src:
-            results = src.search("perovskite solar cells")
+            results = src.search(query="perovskite solar cells")
 
         assert len(results) == 1
         art = results[0]
@@ -64,7 +64,7 @@ class TestOpenAlexSearch:
         mock_get.return_value = make_response(json_data={"results": []})
 
         with OpenAlexSource(mailto="test@example.com") as src:
-            src.search("test")
+            src.search(query="test")
 
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["mailto"] == "test@example.com"
@@ -74,7 +74,7 @@ class TestOpenAlexSearch:
         mock_get.return_value = make_response(json_data={"results": []})
 
         with OpenAlexSource() as src:
-            src.search("test", max_results=999)
+            src.search(query="test", max_results=999)
 
         _, kwargs = mock_get.call_args
         assert kwargs["params"]["per_page"] == 200
@@ -85,7 +85,7 @@ class TestOpenAlexSearch:
 
         with OpenAlexSource() as src:
             src.search(
-                "battery",
+                query="battery",
                 date_from=date(2024, 1, 1),
                 date_to=date(2024, 12, 31),
             )
@@ -143,7 +143,7 @@ class TestOpenAlexEdgeCases:
         mock_get.return_value = make_response(json_data={"results": [work]})
 
         with OpenAlexSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].abstract is None
 
@@ -152,7 +152,7 @@ class TestOpenAlexEdgeCases:
         mock_get.return_value = make_response(json_data={"results": [WORK]})
 
         with OpenAlexSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         cats = results[0].categories
         assert "Solar cell" in cats
@@ -165,6 +165,6 @@ class TestOpenAlexEdgeCases:
         mock_get.return_value = make_response(json_data={"results": [work]})
 
         with OpenAlexSource() as src:
-            results = src.search("test")
+            results = src.search(query="test")
 
         assert results[0].venue is None

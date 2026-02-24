@@ -4,10 +4,14 @@ Usage::
 
     pyflyte run alpha_signal/workflows/pipeline.py pipeline_wf \
         --query "solid state batteries" \
-        --sources "arxiv,openalex,europe_pmc" \
+        --sources "[arxiv,openalex,europe_pmc]" \
         --max_results_per_source 20 \
         --model gpt-4o-mini \
         --budget_usd 0.50
+
+    # Date-only ingest (no query):
+    pyflyte run alpha_signal/workflows/pipeline.py pipeline_wf \
+        --date_from 2024-01-01 --date_to 2024-12-31
 """
 
 from __future__ import annotations
@@ -17,13 +21,13 @@ from typing import Optional
 from flytekit import workflow
 
 from alpha_signal.workflows.extract import extract
-from alpha_signal.workflows.ingest import ingest
+from alpha_signal.workflows.ingest import SourceEnum, ingest
 
 
 @workflow
 def pipeline_wf(
-    query: str,
-    sources: str = "arxiv,openalex,europe_pmc",
+    query: Optional[str] = None,
+    sources: Optional[list[SourceEnum]] = None,
     max_results_per_source: int = 20,
     cache_path: str = "articles.db",
     date_from: Optional[str] = None,
@@ -34,8 +38,8 @@ def pipeline_wf(
 ) -> str:
     """Full pipeline: ingest articles from sources, then extract with LLM.
 
-    Optional *date_from* and *date_to* are ISO dates (YYYY-MM-DD) to restrict
-    ingestion to a publication/submission date range.
+    Pass *query* to search, or omit *query* and pass *date_from* and/or
+    *date_to* to ingest all articles in that date range.
 
     Returns the extraction cost summary.
     """

@@ -39,31 +39,53 @@ class SemanticScholarSource(BaseSource):
 
     def search(
         self,
-        query: str,
         *,
-        max_results: int = 10,
+        query: str | None = None,
+        max_results: int | None = 10,
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[Article]:
-        params: dict = {"query": query, "limit": min(max_results, 100), "fields": _FIELDS}
-        if date_from is not None and date_to is not None:
-            params["year"] = f"{date_from.year}-{date_to.year}"
-        elif date_from is not None:
-            params["year"] = str(date_from.year)
-        elif date_to is not None:
-            params["year"] = str(date_to.year)
+        page_size = 100
+        all_articles: list[Article] = []
+        offset = 0
 
-        resp = self._get("/paper/search", params=params)
-        articles = [self._to_article(hit) for hit in resp.json().get("data", [])]
-        if date_from is not None or date_to is not None:
-            articles = [
-                a
-                for a in articles
-                if a.publication_date is not None
-                and (date_from is None or a.publication_date >= date_from)
-                and (date_to is None or a.publication_date <= date_to)
-            ]
-        return articles
+        while True:
+            want = page_size if max_results is None else min(max_results - len(all_articles), page_size)
+            if want <= 0:
+                break
+            params: dict = {"limit": want, "offset": offset, "fields": _FIELDS}
+            if query is not None:
+                params["query"] = query
+            else:
+                params["query"] = "*"
+            if date_from is not None and date_to is not None:
+                params["year"] = f"{date_from.year}-{date_to.year}"
+            elif date_from is not None:
+                params["year"] = str(date_from.year)
+            elif date_to is not None:
+                params["year"] = str(date_to.year)
+
+            resp = self._get("/paper/search", params=params)
+            batch = resp.json().get("data", [])
+            articles = [self._to_article(hit) for hit in batch]
+            if date_from is not None or date_to is not None:
+                articles = [
+                    a
+                    for a in articles
+                    if a.publication_date is not None
+                    and (date_from is None or a.publication_date >= date_from)
+                    and (date_to is None or a.publication_date <= date_to)
+                ]
+            all_articles.extend(articles)
+            if len(batch) < want:
+                break
+            if max_results is not None and len(all_articles) >= max_results:
+                break
+            offset += len(batch)
+
+        if max_results is not None:
+            all_articles = all_articles[:max_results]
+        return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:
         resp = self._get(f"/paper/{identifier}", params={"fields": _FIELDS})

@@ -38,18 +38,21 @@ class BaseSource(ABC):
     @abstractmethod
     def search(
         self,
-        query: str,
         *,
-        max_results: int = 10,
+        query: str | None = None,
+        max_results: int | None = 10,
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[Article]:
-        """Return articles matching *query*, up to *max_results*.
+        """Return articles matching *query* and/or in the given date range.
 
-        If *date_from* is set, only articles on or after that date are included.
-        If *date_to* is set, only articles on or before that date are included.
-        Not all sources support date filtering; those that do not will ignore
-        the range and return results based on *query* and *max_results* only.
+        When *max_results* is None, fetch all matching results by paginating
+        until the source returns no more. When *max_results* is an int, return
+        at most that many (subject to each source's API limits per request).
+
+        When *query* is None, *date_from* and/or *date_to* must be set; return
+        articles in that date range. When *query* is set, search for that term
+        and optionally restrict by dates.
         """
 
     @abstractmethod

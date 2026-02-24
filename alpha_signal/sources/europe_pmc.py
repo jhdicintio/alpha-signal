@@ -20,39 +20,59 @@ class EuropePMCSource(BaseSource):
 
     def search(
         self,
-        query: str,
         *,
-        max_results: int = 10,
+        query: str | None = None,
+        max_results: int | None = 10,
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[Article]:
-        q = query
-        if date_from is not None or date_to is not None:
-            from_str = date_from.isoformat() if date_from else "1900-01-01"
-            to_str = date_to.isoformat() if date_to else "2099-12-31"
-            q = f"({query}) AND FIRST_PDATE:{from_str}:{to_str}"
-        resp = self._get(
-            "/search",
-            params={
-                "query": q,
-                "format": "json",
-                "pageSize": min(max_results, 100),
-                "resultType": "core",
-            },
-        )
-        articles = [
-            self._to_article(r)
-            for r in resp.json().get("resultList", {}).get("result", [])
-        ]
-        if date_from is not None or date_to is not None:
-            articles = [
-                a
-                for a in articles
-                if a.publication_date is not None
-                and (date_from is None or a.publication_date >= date_from)
-                and (date_to is None or a.publication_date <= date_to)
-            ]
-        return articles
+        from_str = date_from.isoformat() if date_from else "1900-01-01"
+        to_str = date_to.isoformat() if date_to else "2099-12-31"
+        if query is not None:
+            q = f"({query}) AND FIRST_PDATE:{from_str}:{to_str}" if (date_from or date_to) else query
+        else:
+            q = f"FIRST_PDATE:{from_str}:{to_str}"
+
+        page_size = 100
+        all_articles: list[Article] = []
+        cursor_mark: str = "*"
+
+        while True:
+            want = page_size if max_results is None else min(max_results - len(all_articles), page_size)
+            if want <= 0:
+                break
+            resp = self._get(
+                "/search",
+                params={
+                    "query": q,
+                    "format": "json",
+                    "pageSize": want,
+                    "resultType": "core",
+                    "cursorMark": cursor_mark,
+                },
+            )
+            data = resp.json()
+            result_list = data.get("resultList", {}).get("result", [])
+            batch = [self._to_article(r) for r in result_list]
+            if date_from is not None or date_to is not None:
+                batch = [
+                    a
+                    for a in batch
+                    if a.publication_date is not None
+                    and (date_from is None or a.publication_date >= date_from)
+                    and (date_to is None or a.publication_date <= date_to)
+                ]
+            all_articles.extend(batch)
+            next_mark = data.get("nextCursorMark")
+            if not next_mark or next_mark == cursor_mark or not result_list:
+                break
+            if max_results is not None and len(all_articles) >= max_results:
+                break
+            cursor_mark = next_mark
+
+        if max_results is not None:
+            all_articles = all_articles[:max_results]
+        return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:
         resp = self._get(

@@ -25,25 +25,53 @@ class OpenAlexSource(BaseSource):
 
     def search(
         self,
-        query: str,
         *,
-        max_results: int = 10,
+        query: str | None = None,
+        max_results: int | None = 10,
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[Article]:
-        params: dict = {"search": query, "per_page": min(max_results, 200)}
+        page_size = 200
+        base_params: dict = {"per_page": page_size}
+        if query is not None:
+            base_params["search"] = query
         if self._mailto:
-            params["mailto"] = self._mailto
+            base_params["mailto"] = self._mailto
         if date_from is not None or date_to is not None:
             parts = []
             if date_from is not None:
                 parts.append(f"from_publication_date:{date_from.isoformat()}")
             if date_to is not None:
                 parts.append(f"to_publication_date:{date_to.isoformat()}")
-            params["filter"] = ",".join(parts)
+            base_params["filter"] = ",".join(parts)
+        if "search" not in base_params and base_params.get("filter"):
+            base_params["search"] = "*"
+        elif "search" not in base_params:
+            base_params["search"] = "*"
 
-        resp = self._get("/works", params=params)
-        return [self._to_article(w) for w in resp.json().get("results", [])]
+        all_articles: list[Article] = []
+        cursor: str | None = "*"
+
+        while True:
+            want = (page_size if max_results is None else min(max_results - len(all_articles), page_size))
+            if want <= 0:
+                break
+            request_params = {**base_params, "per_page": want, "cursor": cursor}
+            resp = self._get("/works", params=request_params)
+            data = resp.json()
+            results = data.get("results", [])
+            batch = [self._to_article(w) for w in results]
+            all_articles.extend(batch)
+            next_cursor = data.get("meta", {}).get("next_cursor")
+            if not next_cursor or not results:
+                break
+            if max_results is not None and len(all_articles) >= max_results:
+                break
+            cursor = next_cursor
+
+        if max_results is not None:
+            all_articles = all_articles[:max_results]
+        return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:
         params: dict = {}

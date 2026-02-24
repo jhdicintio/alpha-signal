@@ -34,37 +34,60 @@ class ArxivSource(BaseSource):
 
     def search(
         self,
-        query: str,
         *,
-        max_results: int = 10,
+        query: str | None = None,
+        max_results: int | None = 10,
         date_from: date | None = None,
         date_to: date | None = None,
     ) -> list[Article]:
-        search_query = f"all:{query}"
+        if query is not None:
+            search_query = f"all:{query}"
+        else:
+            search_query = ""
         if date_from is not None or date_to is not None:
             from_str = date_from.strftime("%Y%m%d") if date_from else "*"
             to_str = date_to.strftime("%Y%m%d") if date_to else "*"
-            search_query += f" AND submittedDate:[{from_str} TO {to_str}]"
-        resp = self._get(
-            "/api/query",
-            params={
-                "search_query": search_query,
-                "start": 0,
-                "max_results": min(max_results, 100),
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-            },
-        )
-        articles = self._parse_feed(resp.text)
-        if date_from is not None or date_to is not None:
-            articles = [
-                a
-                for a in articles
-                if a.publication_date is not None
-                and (date_from is None or a.publication_date >= date_from)
-                and (date_to is None or a.publication_date <= date_to)
-            ]
-        return articles
+            date_part = f"submittedDate:[{from_str} TO {to_str}]"
+            search_query = f"{search_query} AND {date_part}".lstrip(" AND ") if search_query else date_part
+
+        page_size = 100
+        all_articles: list[Article] = []
+        start = 0
+
+        while True:
+            fetch_size = page_size if max_results is None else min(max_results - len(all_articles), page_size)
+            if fetch_size <= 0:
+                break
+            resp = self._get(
+                "/api/query",
+                params={
+                    "search_query": search_query,
+                    "start": start,
+                    "max_results": fetch_size,
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                },
+            )
+            batch = self._parse_feed(resp.text)
+            raw_count = len(batch)
+            if date_from is not None or date_to is not None:
+                batch = [
+                    a
+                    for a in batch
+                    if a.publication_date is not None
+                    and (date_from is None or a.publication_date >= date_from)
+                    and (date_to is None or a.publication_date <= date_to)
+                ]
+            all_articles.extend(batch)
+            if raw_count < fetch_size:
+                break
+            if max_results is not None and len(all_articles) >= max_results:
+                break
+            start += fetch_size
+
+        if max_results is not None:
+            all_articles = all_articles[:max_results]
+        return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:
         resp = self._get("/api/query", params={"id_list": identifier})
