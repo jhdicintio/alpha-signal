@@ -7,6 +7,7 @@ time, guaranteeing the LLM response conforms to this shape.
 
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -105,4 +106,12 @@ class ArticleExtraction(BaseModel):
             "electrolyte that could make lithium-sulfur batteries viable for "
             "EV applications within 5 years.'"
         ),
+    )
+    extraction_model: str | None = Field(
+        default=None,
+        description="Model identifier used to produce this extraction (e.g. gpt-4o-mini).",
+    )
+    extraction_timestamp: datetime | None = Field(
+        default=None,
+        description="When the extraction was produced (UTC).",
     )

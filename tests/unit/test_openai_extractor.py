@@ -93,7 +93,14 @@ class TestOpenAIExtractorExtract:
         extractor = OpenAIExtractor(api_key="test-key")
         result = extractor.extract(SAMPLE_ARTICLE)
 
-        assert result == SAMPLE_EXTRACTION
+        expected = ArticleExtraction(
+            **{
+                **SAMPLE_EXTRACTION.model_dump(),
+                "extraction_model": "gpt-4o-mini",
+                "extraction_timestamp": result.extraction_timestamp,
+            }
+        )
+        assert result == expected
         assert len(result.technologies) == 1
         assert result.technologies[0].sector == "Energy Storage"
         assert result.novelty == Novelty.novel

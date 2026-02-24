@@ -6,6 +6,8 @@ Requires an OpenAI API key — either pass it directly or set the
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import openai
 
 from alpha_signal.extractors.base import BaseExtractor
@@ -83,6 +85,8 @@ class OpenAIExtractor(BaseExtractor):
                 novelty="review",
                 sentiment="neutral",
                 summary="No abstract available for analysis.",
+                extraction_model=self._model,
+                extraction_timestamp=datetime.now(timezone.utc),
             )
 
         user_content = self._build_user_message(article)
@@ -109,7 +113,10 @@ class OpenAIExtractor(BaseExtractor):
             refusal = response.choices[0].message.refusal
             raise RuntimeError(f"Extraction refused by model: {refusal}")
 
-        return parsed
+        data = parsed.model_dump()
+        data["extraction_model"] = self._model
+        data["extraction_timestamp"] = datetime.now(timezone.utc)
+        return ArticleExtraction(**data)
 
     def estimate_cost(self, articles: list[Article]) -> CostEstimate:
         """Estimate extraction cost without calling the API.
