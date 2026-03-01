@@ -31,6 +31,7 @@ class SemanticScholarSource(BaseSource):
 
     name = "semantic_scholar"
     base_url = "https://api.semanticscholar.org/graph/v1"
+    rate_delay = 3.0
 
     def __init__(self, api_key: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)

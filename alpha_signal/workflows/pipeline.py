@@ -18,17 +18,17 @@ from __future__ import annotations
 
 from typing import Optional
 
-from flytekit import workflow
+from flytekit import dynamic
 
 from alpha_signal.workflows.extract import extract
-from alpha_signal.workflows.ingest import SourceEnum, ingest
+from alpha_signal.workflows.ingest import SourceEnum, ingest_wf
 
 
-@workflow
+@dynamic
 def pipeline_wf(
     query: Optional[str] = None,
     sources: Optional[list[SourceEnum]] = None,
-    max_results_per_source: int = 20,
+    max_results_per_source: Optional[int] = 20,
     cache_path: str = "articles.db",
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
@@ -43,7 +43,7 @@ def pipeline_wf(
 
     Returns the extraction cost summary.
     """
-    ingest(
+    ingest_wf(
         query=query,
         sources=sources,
         max_results_per_source=max_results_per_source,

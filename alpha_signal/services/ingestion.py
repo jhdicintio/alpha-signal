@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, timedelta
 
+from alpha_signal.cache.base import BaseArticleCache
 from alpha_signal.models.articles import Article
 from alpha_signal.sources.base import BaseSource
 
 logger = logging.getLogger(__name__)
+
+_OVERLAP_DAYS = 3
 
 
 def search(
@@ -133,3 +136,57 @@ def _richness(article: Article) -> int:
 
 def _normalise_title(title: str) -> str:
     return " ".join(title.lower().split())
+
+
+def incremental_ingest(
+    source: BaseSource,
+    cache: BaseArticleCache,
+    *,
+    query: str | None = None,
+    max_results: int | None = None,
+    default_start: date = date(2015, 1, 1),
+    overlap_days: int = _OVERLAP_DAYS,
+) -> list[Article]:
+    """Fetch only articles newer than what the cache already holds for *source*.
+
+    Uses the high-water mark (latest ``publication_date`` in cache for this
+    source name) minus *overlap_days* as ``date_from``.  Articles already
+    present in the cache are filtered out before returning.
+
+    On the first run (empty cache), *default_start* is used as ``date_from``.
+    """
+    high_water = cache.latest_date(source.name)
+    if high_water is not None:
+        date_from = high_water - timedelta(days=overlap_days)
+    else:
+        date_from = default_start
+
+    logger.info(
+        "%s: incremental fetch from %s (high-water: %s)",
+        source.name,
+        date_from,
+        high_water or "none",
+    )
+
+    try:
+        hits = source.search(
+            query=query,
+            max_results=max_results,
+            date_from=date_from,
+        )
+    except Exception:
+        logger.exception("incremental fetch failed for source %s", source.name)
+        return []
+
+    logger.info("%s: fetched %d candidates", source.name, len(hits))
+
+    existing_ids = cache.source_ids(source.name)
+    new_articles = [a for a in hits if a.source_id not in existing_ids]
+
+    logger.info(
+        "%s: %d new articles (%d already cached)",
+        source.name,
+        len(new_articles),
+        len(hits) - len(new_articles),
+    )
+    return new_articles

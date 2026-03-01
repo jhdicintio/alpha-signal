@@ -23,6 +23,7 @@ class ArxivSource(BaseSource):
 
     name = "arxiv"
     base_url = "https://export.arxiv.org"
+    rate_delay = 3.0
 
     def __init__(self, **kwargs) -> None:
         timeout = kwargs.pop("timeout", _DEFAULT_TIMEOUT)

@@ -17,6 +17,7 @@ class EuropePMCSource(BaseSource):
 
     name = "europe_pmc"
     base_url = "https://www.ebi.ac.uk/europepmc/webservices/rest"
+    rate_delay = 0.2
 
     def search(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import date
 
 from alpha_signal.models.articles import Article
 
@@ -42,3 +43,11 @@ class BaseArticleCache(ABC):
     @abstractmethod
     def clear(self) -> None:
         """Remove all articles from the cache."""
+
+    @abstractmethod
+    def latest_date(self, source: str) -> date | None:
+        """Return the most recent ``publication_date`` for *source*, or None."""
+
+    @abstractmethod
+    def source_ids(self, source: str) -> set[str]:
+        """Return all ``source_id`` values stored for *source*."""

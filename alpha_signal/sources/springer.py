@@ -17,6 +17,7 @@ class SpringerSource(BaseSource):
 
     name = "springer"
     base_url = "https://api.springernature.com/meta/v2"
+    rate_delay = 1.0
 
     def __init__(self, api_key: str, **kwargs) -> None:
         super().__init__(**kwargs)

@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS articles (
     PRIMARY KEY (source, source_id)
 );
 CREATE INDEX IF NOT EXISTS idx_articles_doi ON articles(doi);
+CREATE INDEX IF NOT EXISTS idx_articles_source ON articles(source);
+CREATE INDEX IF NOT EXISTS idx_articles_pub_date ON articles(publication_date);
+CREATE INDEX IF NOT EXISTS idx_articles_source_pub_date ON articles(source, publication_date);
+CREATE INDEX IF NOT EXISTS idx_articles_cached_at ON articles(cached_at);
 """
 
 
@@ -54,6 +58,8 @@ class SQLiteArticleCache(BaseArticleCache):
         self._db_path = str(db_path)
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row
+        if self._db_path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
         self._migrate()
 
@@ -106,6 +112,25 @@ class SQLiteArticleCache(BaseArticleCache):
     def clear(self) -> None:
         self._conn.execute("DELETE FROM articles")
         self._conn.commit()
+
+    def latest_date(self, source: str) -> date | None:
+        row = self._conn.execute(
+            "SELECT MAX(publication_date) AS max_date FROM articles WHERE source = ?",
+            (source,),
+        ).fetchone()
+        val = row["max_date"] if row else None
+        if val is None:
+            return None
+        try:
+            return date.fromisoformat(val)
+        except ValueError:
+            return None
+
+    def source_ids(self, source: str) -> set[str]:
+        rows = self._conn.execute(
+            "SELECT source_id FROM articles WHERE source = ?", (source,)
+        ).fetchall()
+        return {r["source_id"] for r in rows}
 
     def close(self) -> None:
         self._conn.close()

@@ -18,6 +18,7 @@ class OpenAlexSource(BaseSource):
 
     name = "openalex"
     base_url = "https://api.openalex.org"
+    rate_delay = 0.1
 
     def __init__(self, mailto: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
