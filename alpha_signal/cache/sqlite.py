@@ -2,12 +2,17 @@
 
 Uses the stdlib :mod:`sqlite3` module — no extra dependencies, file-based,
 and suitable for local development and moderate-scale pipelines.
+
+The ``raw`` column is stored as zlib-compressed JSON (BLOB) to reduce disk
+usage by 5-10x.  Compression and decompression are handled transparently in
+:meth:`_to_row` and :meth:`_from_row`; callers always see a plain ``dict``.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import zlib
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -27,7 +32,7 @@ CREATE TABLE IF NOT EXISTS articles (
     venue           TEXT,
     citation_count  INTEGER,
     categories      TEXT,
-    raw             TEXT,
+    raw             BLOB,
     cached_at       TEXT NOT NULL,
     PRIMARY KEY (source, source_id)
 );
@@ -50,6 +55,7 @@ class SQLiteArticleCache(BaseArticleCache):
         self._conn = sqlite3.connect(self._db_path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._migrate()
 
     def put(self, article: Article) -> None:
         self._conn.execute(
@@ -110,7 +116,51 @@ class SQLiteArticleCache(BaseArticleCache):
     def __exit__(self, *exc) -> None:
         self.close()
 
+    # -- migration -----------------------------------------------------------
+
+    def _migrate(self) -> None:
+        """Migrate legacy TEXT raw columns to compressed BLOB in-place."""
+        col_info = self._conn.execute("PRAGMA table_info(articles)").fetchall()
+        raw_col = next((c for c in col_info if c["name"] == "raw"), None)
+        if raw_col is None or raw_col["type"].upper() == "BLOB":
+            return
+
+        rows = self._conn.execute(
+            "SELECT source, source_id, raw FROM articles WHERE raw IS NOT NULL"
+        ).fetchall()
+        if not rows:
+            return
+
+        for row in rows:
+            raw_value = row["raw"]
+            if isinstance(raw_value, str):
+                compressed = zlib.compress(raw_value.encode("utf-8"))
+                self._conn.execute(
+                    "UPDATE articles SET raw = ? WHERE source = ? AND source_id = ?",
+                    (compressed, row["source"], row["source_id"]),
+                )
+        self._conn.commit()
+
     # -- serialisation -------------------------------------------------------
+
+    @staticmethod
+    def _compress_raw(raw: dict) -> bytes | None:
+        """JSON-encode and zlib-compress a raw dict for storage."""
+        if not raw:
+            return None
+        return zlib.compress(json.dumps(raw, separators=(",", ":")).encode("utf-8"))
+
+    @staticmethod
+    def _decompress_raw(data: bytes | str | None) -> dict:
+        """Decompress a stored raw value back to a dict.
+
+        Handles both compressed BLOB (new) and plain TEXT JSON (legacy).
+        """
+        if data is None:
+            return {}
+        if isinstance(data, str):
+            return json.loads(data)
+        return json.loads(zlib.decompress(data).decode("utf-8"))
 
     @staticmethod
     def _to_row(article: Article) -> tuple:
@@ -126,7 +176,7 @@ class SQLiteArticleCache(BaseArticleCache):
             article.venue,
             article.citation_count,
             json.dumps(article.categories),
-            json.dumps(article.raw),
+            SQLiteArticleCache._compress_raw(article.raw),
             datetime.now(timezone.utc).isoformat(),
         )
 
@@ -151,5 +201,5 @@ class SQLiteArticleCache(BaseArticleCache):
             venue=row["venue"],
             citation_count=row["citation_count"],
             categories=json.loads(row["categories"]) if row["categories"] else [],
-            raw=json.loads(row["raw"]) if row["raw"] else {},
+            raw=SQLiteArticleCache._decompress_raw(row["raw"]),
         )
