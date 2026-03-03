@@ -6,10 +6,13 @@ Free tier: 100 requests / 5 minutes (higher with an API key).
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from alpha_signal.models.articles import Article
 from alpha_signal.sources.base import BaseSource
+
+logger = logging.getLogger(__name__)
 
 _FIELDS = ",".join([
     "paperId",
@@ -49,11 +52,14 @@ class SemanticScholarSource(BaseSource):
         page_size = 100
         all_articles: list[Article] = []
         offset = 0
+        page = 0
 
         while True:
             want = page_size if max_results is None else min(max_results - len(all_articles), page_size)
             if want <= 0:
                 break
+            page += 1
+            logger.info("semantic_scholar: page %d  offset=%d  limit=%d", page, offset, want)
             params: dict = {"limit": want, "offset": offset, "fields": _FIELDS}
             if query is not None:
                 params["query"] = query
@@ -69,6 +75,7 @@ class SemanticScholarSource(BaseSource):
             resp = self._get("/paper/search", params=params)
             batch = resp.json().get("data", [])
             articles = [self._to_article(hit) for hit in batch]
+            raw_count = len(batch)
             if date_from is not None or date_to is not None:
                 articles = [
                     a
@@ -78,6 +85,7 @@ class SemanticScholarSource(BaseSource):
                     and (date_to is None or a.publication_date <= date_to)
                 ]
             all_articles.extend(articles)
+            logger.info("semantic_scholar: page %d returned %d raw, %d after date filter, %d total", page, raw_count, len(articles), len(all_articles))
             if len(batch) < want:
                 break
             if max_results is not None and len(all_articles) >= max_results:
@@ -86,6 +94,7 @@ class SemanticScholarSource(BaseSource):
 
         if max_results is not None:
             all_articles = all_articles[:max_results]
+        logger.info("semantic_scholar: done — %d articles collected", len(all_articles))
         return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:

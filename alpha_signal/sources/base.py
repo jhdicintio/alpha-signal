@@ -99,6 +99,7 @@ class BaseSource(ABC):
             time.sleep(self.rate_delay)
         self._request_count += 1
 
+        logger.debug("%s GET %s %s", self.name, path, params)
         resp = self._client.get(path, params=params)
         if resp.status_code == 429:
             retry_after = resp.headers.get("Retry-After")

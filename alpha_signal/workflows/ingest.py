@@ -33,9 +33,10 @@ import calendar
 import logging
 from datetime import date
 from enum import Enum
+from functools import partial
 from typing import Optional
 
-from flytekit import LaunchPlan, CronSchedule, dynamic, task, workflow
+from flytekit import LaunchPlan, CronSchedule, dynamic, map_task, task, workflow
 
 from alpha_signal.cache.sqlite import SQLiteArticleCache
 from alpha_signal.models.articles import Article
@@ -46,6 +47,11 @@ from alpha_signal.sources.europe_pmc import EuropePMCSource
 from alpha_signal.sources.openalex import OpenAlexSource
 from alpha_signal.sources.semantic_scholar import SemanticScholarSource
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +96,10 @@ def ingest_source(
     date_to: Optional[str] = None,
 ) -> list[Article]:
     """Fetch articles from a single source. Meant to run in parallel."""
+    logger.info(
+        "▶ %s  query=%r  max_results=%s  dates=%s→%s",
+        source.value, query, max_results_per_source, date_from, date_to,
+    )
     src = _build_source(source)
     date_from_d: date | None = None
     date_to_d: date | None = None
@@ -117,7 +127,7 @@ def ingest_source(
     finally:
         src.close()
 
-    logger.info("%s: fetched %d articles", source.value, len(articles))
+    logger.info("✔ %s: fetched %d articles", source.value, len(articles))
     return articles
 
 
@@ -209,24 +219,24 @@ def ingest_wf(
 ) -> int:
     """Ingest articles from scientific sources into the local cache.
 
-    Sources run as parallel tasks; results are merged and deduplicated in a
-    single downstream task.
+    Sources run as truly parallel Flyte tasks via ``map_task``; results are
+    merged and deduplicated in a single downstream task.
     """
     source_list = sources if sources else _DEFAULT_SOURCES
 
     if query is None and not (date_from or date_to):
         raise ValueError("When query is omitted, at least one of date_from or date_to must be set.")
 
-    batches: list[list[Article]] = []
-    for source_enum in source_list:
-        batch = ingest_source(
-            source=source_enum,
+    mapped = map_task(
+        partial(
+            ingest_source,
             query=query,
             max_results_per_source=max_results_per_source,
             date_from=date_from,
             date_to=date_to,
         )
-        batches.append(batch)
+    )
+    batches = mapped(source=source_list)
 
     return deduplicate_and_cache(batches=batches, cache_path=cache_path)
 

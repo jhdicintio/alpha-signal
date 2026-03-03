@@ -7,10 +7,13 @@ pool (faster, more reliable).
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from alpha_signal.models.articles import Article
 from alpha_signal.sources.base import BaseSource
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAlexSource(BaseSource):
@@ -52,17 +55,21 @@ class OpenAlexSource(BaseSource):
 
         all_articles: list[Article] = []
         cursor: str | None = "*"
+        page = 0
 
         while True:
             want = (page_size if max_results is None else min(max_results - len(all_articles), page_size))
             if want <= 0:
                 break
+            page += 1
+            logger.info("openalex: page %d  per_page=%d", page, want)
             request_params = {**base_params, "per_page": want, "cursor": cursor}
             resp = self._get("/works", params=request_params)
             data = resp.json()
             results = data.get("results", [])
             batch = [self._to_article(w) for w in results]
             all_articles.extend(batch)
+            logger.info("openalex: page %d returned %d results, %d total", page, len(results), len(all_articles))
             next_cursor = data.get("meta", {}).get("next_cursor")
             if not next_cursor or not results:
                 break
@@ -72,6 +79,7 @@ class OpenAlexSource(BaseSource):
 
         if max_results is not None:
             all_articles = all_articles[:max_results]
+        logger.info("openalex: done — %d articles collected", len(all_articles))
         return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:

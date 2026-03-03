@@ -6,10 +6,13 @@ API docs: https://europepmc.org/RestfulWebService
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from alpha_signal.models.articles import Article
 from alpha_signal.sources.base import BaseSource
+
+logger = logging.getLogger(__name__)
 
 
 class EuropePMCSource(BaseSource):
@@ -37,11 +40,14 @@ class EuropePMCSource(BaseSource):
         page_size = 100
         all_articles: list[Article] = []
         cursor_mark: str = "*"
+        page = 0
 
         while True:
             want = page_size if max_results is None else min(max_results - len(all_articles), page_size)
             if want <= 0:
                 break
+            page += 1
+            logger.info("europe_pmc: page %d  pageSize=%d", page, want)
             resp = self._get(
                 "/search",
                 params={
@@ -55,6 +61,7 @@ class EuropePMCSource(BaseSource):
             data = resp.json()
             result_list = data.get("resultList", {}).get("result", [])
             batch = [self._to_article(r) for r in result_list]
+            raw_count = len(batch)
             if date_from is not None or date_to is not None:
                 batch = [
                     a
@@ -64,6 +71,7 @@ class EuropePMCSource(BaseSource):
                     and (date_to is None or a.publication_date <= date_to)
                 ]
             all_articles.extend(batch)
+            logger.info("europe_pmc: page %d returned %d raw, %d after date filter, %d total", page, raw_count, len(batch), len(all_articles))
             next_mark = data.get("nextCursorMark")
             if not next_mark or next_mark == cursor_mark or not result_list:
                 break
@@ -73,6 +81,7 @@ class EuropePMCSource(BaseSource):
 
         if max_results is not None:
             all_articles = all_articles[:max_results]
+        logger.info("europe_pmc: done — %d articles collected", len(all_articles))
         return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:

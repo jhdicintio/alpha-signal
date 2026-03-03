@@ -6,13 +6,15 @@ Free, no authentication required.  Returns Atom XML.
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from datetime import date
 
-import httpx
 
 from alpha_signal.models.articles import Article
-from alpha_signal.sources.base import BaseSource, _DEFAULT_TIMEOUT
+from alpha_signal.sources.base import BaseSource
+
+logger = logging.getLogger(__name__)
 
 _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
@@ -26,12 +28,8 @@ class ArxivSource(BaseSource):
     rate_delay = 3.0
 
     def __init__(self, **kwargs) -> None:
-        timeout = kwargs.pop("timeout", _DEFAULT_TIMEOUT)
-        self._client = httpx.Client(
-            base_url=self.base_url,
-            timeout=timeout,
-            headers={"Accept": "application/xml"},
-        )
+        super().__init__(**kwargs)
+        self._client.headers["Accept"] = "application/xml"
 
     def search(
         self,
@@ -54,11 +52,14 @@ class ArxivSource(BaseSource):
         page_size = 100
         all_articles: list[Article] = []
         start = 0
+        page = 0
 
         while True:
             fetch_size = page_size if max_results is None else min(max_results - len(all_articles), page_size)
             if fetch_size <= 0:
                 break
+            page += 1
+            logger.info("arxiv: page %d  start=%d  fetch_size=%d", page, start, fetch_size)
             resp = self._get(
                 "/api/query",
                 params={
@@ -80,6 +81,7 @@ class ArxivSource(BaseSource):
                     and (date_to is None or a.publication_date <= date_to)
                 ]
             all_articles.extend(batch)
+            logger.info("arxiv: page %d returned %d raw, %d after date filter, %d total", page, raw_count, len(batch), len(all_articles))
             if raw_count < fetch_size:
                 break
             if max_results is not None and len(all_articles) >= max_results:
@@ -88,6 +90,7 @@ class ArxivSource(BaseSource):
 
         if max_results is not None:
             all_articles = all_articles[:max_results]
+        logger.info("arxiv: done — %d articles collected", len(all_articles))
         return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:

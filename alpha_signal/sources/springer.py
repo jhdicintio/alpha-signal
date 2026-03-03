@@ -6,10 +6,13 @@ Requires a free API key — register at https://dev.springernature.com.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from alpha_signal.models.articles import Article
 from alpha_signal.sources.base import BaseSource
+
+logger = logging.getLogger(__name__)
 
 
 class SpringerSource(BaseSource):
@@ -37,11 +40,14 @@ class SpringerSource(BaseSource):
         page_size = 50
         all_articles: list[Article] = []
         start = 1
+        page = 0
 
         while True:
             want = page_size if max_results is None else min(max_results - len(all_articles), page_size)
             if want <= 0:
                 break
+            page += 1
+            logger.info("springer: page %d  start=%d  page_size=%d", page, start, want)
             params: dict = {"q": q, "p": want, "s": start, "api_key": self._api_key}
             if date_from is not None:
                 params["datefrom"] = date_from.isoformat()
@@ -51,6 +57,7 @@ class SpringerSource(BaseSource):
             resp = self._get("/json", params=params)
             records = resp.json().get("records", [])
             batch = [self._to_article(rec) for rec in records]
+            raw_count = len(batch)
             if date_from is not None or date_to is not None:
                 batch = [
                     a
@@ -60,6 +67,7 @@ class SpringerSource(BaseSource):
                     and (date_to is None or a.publication_date <= date_to)
                 ]
             all_articles.extend(batch)
+            logger.info("springer: page %d returned %d raw, %d after date filter, %d total", page, raw_count, len(batch), len(all_articles))
             if len(records) < want:
                 break
             if max_results is not None and len(all_articles) >= max_results:
@@ -68,6 +76,7 @@ class SpringerSource(BaseSource):
 
         if max_results is not None:
             all_articles = all_articles[:max_results]
+        logger.info("springer: done — %d articles collected", len(all_articles))
         return all_articles
 
     def fetch_by_id(self, identifier: str) -> Article | None:
