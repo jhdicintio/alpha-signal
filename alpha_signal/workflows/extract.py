@@ -7,29 +7,88 @@ Usage::
         --cache_path articles.db \
         --model gpt-4o-mini
 
-    # Run extraction (costs money)
+    # Run extraction (costs money) — provider is auto-detected from model name
     pyflyte run alpha_signal/workflows/extract.py extract_wf \
         --cache_path articles.db \
         --model gpt-4o-mini \
-        --budget_usd 0.50 \
-        --output_path extractions.json
+        --budget_usd 0.50
+
+    # Anthropic
+    pyflyte run alpha_signal/workflows/extract.py extract_wf \
+        --model claude-sonnet-4-20250514
+
+    # Gemini
+    pyflyte run alpha_signal/workflows/extract.py extract_wf \
+        --model gemini-2.0-flash
 """
 
 from __future__ import annotations
 
-import json
 import logging
+from enum import Enum
 
 from flytekit import task, workflow
 
 from alpha_signal.cache.sqlite import SQLiteArticleCache
+from alpha_signal.extractors.anthropic import AnthropicExtractor
+from alpha_signal.extractors.base import SYSTEM_PROMPT, BaseExtractor
+from alpha_signal.extractors.gemini import GeminiExtractor
 from alpha_signal.extractors.openai import OpenAIExtractor
 from alpha_signal.models.articles import Article
 from alpha_signal.models.extractions import ArticleExtraction
 from alpha_signal.monitoring.costs import CostTracker
 from alpha_signal.services.extraction import extract_batch
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("google_genai.models").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+
+class Provider(str, Enum):
+    openai = "openai"
+    anthropic = "anthropic"
+    gemini = "gemini"
+
+
+_PROVIDER_PREFIXES: list[tuple[str, Provider]] = [
+    ("gpt-", Provider.openai),
+    ("o1", Provider.openai),
+    ("o3", Provider.openai),
+    ("o4", Provider.openai),
+    ("claude-", Provider.anthropic),
+    ("gemini-", Provider.gemini),
+]
+
+
+def _detect_provider(model: str) -> Provider:
+    for prefix, provider in _PROVIDER_PREFIXES:
+        if model.startswith(prefix):
+            return provider
+    raise ValueError(
+        f"Cannot detect provider for model {model!r}. "
+        f"Pass an explicit --provider or use a model name starting with "
+        f"gpt-/claude-/gemini-."
+    )
+
+
+def _build_extractor(
+    model: str,
+    provider: Provider | None = None,
+    cost_tracker: CostTracker | None = None,
+) -> BaseExtractor:
+    prov = provider or _detect_provider(model)
+    if prov == Provider.openai:
+        return OpenAIExtractor(model=model, cost_tracker=cost_tracker)
+    if prov == Provider.anthropic:
+        return AnthropicExtractor(model=model)
+    if prov == Provider.gemini:
+        return GeminiExtractor(model=model)
+    raise ValueError(f"Unknown provider: {prov}")
 
 
 @task
@@ -70,44 +129,70 @@ def estimate_cost(
 @task
 def extract(
     cache_path: str = "articles.db",
-    model: str = "gpt-4o-mini",
+    model: str = "gemini-2.5-flash",
     budget_usd: float = 1.0,
-    output_path: str = "extractions.json",
+    skip_existing: bool = True,
+    max_concurrency: int = 10,
 ) -> str:
-    """Run LLM extraction on all cached articles.
+    """Run LLM extraction on cached articles and persist results.
 
-    Writes results to *output_path* as JSON and returns a cost summary.
+    Extractions are stored in the same SQLite database alongside articles.
+    When *skip_existing* is True, articles that already have an extraction
+    for the given model are skipped.
+
+    *max_concurrency* controls how many API requests run in parallel.
+    Set to 1 for sequential execution.
     """
     with SQLiteArticleCache(cache_path) as cache:
-        articles = cache.all()
+        all_articles = cache.all()
+        total_cached = len(all_articles)
 
-    if not articles:
-        msg = "No articles in cache. Run the ingest workflow first."
-        logger.warning("%s", msg)
-        return msg
+        if not all_articles:
+            msg = "No articles in cache. Run the ingest workflow first."
+            logger.warning("%s", msg)
+            return msg
 
-    logger.info(
-        "Extracting %d articles with %s (budget: $%.2f)",
-        len(articles),
-        model,
-        budget_usd,
-    )
+        logger.info("▶ extract  model=%s  budget=$%.2f  skip_existing=%s  max_concurrency=%d",
+                     model, budget_usd, skip_existing, max_concurrency)
+        logger.info("  cache contains %d articles, %d existing extractions for %s",
+                     total_cached, cache.extraction_count(model=model), model)
 
-    tracker = CostTracker(model=model, budget_usd=budget_usd)
-    extractor = OpenAIExtractor(model=model, cost_tracker=tracker)
+        articles = all_articles
+        if skip_existing:
+            articles = [
+                a for a in all_articles
+                if not cache.has_extraction(a.source, a.source_id, model=model)
+            ]
+            skipped = total_cached - len(articles)
+            if skipped:
+                logger.info("  skipping %d articles already extracted with %s", skipped, model)
+            if not articles:
+                msg = f"All {total_cached} articles already extracted with {model}."
+                logger.info("✔ %s", msg)
+                return msg
 
-    results = extract_batch(
-        articles,
-        extractor,
-        cost_tracker=tracker,
-        system_prompt=OpenAIExtractor.SYSTEM_PROMPT,
-    )
+        logger.info("  %d articles to extract", len(articles))
 
-    _write_results(results, output_path)
-    logger.info("Wrote %d extractions to %s", len(results), output_path)
+        tracker = CostTracker(model=model, budget_usd=budget_usd)
+        extractor = _build_extractor(model, cost_tracker=tracker)
+
+        def _persist(article: Article, extraction: ArticleExtraction) -> None:
+            cache.put_extraction(article.source, article.source_id, extraction)
+
+        results = extract_batch(
+            articles,
+            extractor,
+            cost_tracker=tracker,
+            system_prompt=SYSTEM_PROMPT,
+            max_concurrency=max_concurrency,
+            on_result=_persist,
+        )
+
+        logger.info("✔ persisted %d extractions to cache (%d total for %s)",
+                     len(results), cache.extraction_count(model=model), model)
 
     summary = tracker.summary()
-    logger.info("Cost: %s", summary)
+    logger.info("  cost: %s", summary)
     return summary
 
 
@@ -123,39 +208,16 @@ def estimate_wf(
 @workflow
 def extract_wf(
     cache_path: str = "articles.db",
-    model: str = "gpt-4o-mini",
+    model: str = "gemini-2.5-flash",
     budget_usd: float = 1.0,
-    output_path: str = "extractions.json",
+    skip_existing: bool = True,
+    max_concurrency: int = 10,
 ) -> str:
     """Run LLM extraction on cached articles with budget enforcement."""
     return extract(
         cache_path=cache_path,
         model=model,
         budget_usd=budget_usd,
-        output_path=output_path,
+        skip_existing=skip_existing,
+        max_concurrency=max_concurrency,
     )
-
-
-def _write_results(
-    results: list[tuple[Article, ArticleExtraction]],
-    output_path: str,
-) -> None:
-    output = []
-    for article, extraction in results:
-        output.append({
-            "article": {
-                "source": article.source,
-                "source_id": article.source_id,
-                "title": article.title,
-                "doi": article.doi,
-                "publication_date": (
-                    article.publication_date.isoformat() if article.publication_date else None
-                ),
-                "url": article.url,
-                "venue": article.venue,
-                "authors": article.authors,
-            },
-            "extraction": extraction.model_dump(mode="json"),
-        })
-    with open(output_path, "w") as f:
-        json.dump(output, f, indent=2)

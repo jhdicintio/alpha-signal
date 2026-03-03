@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -43,6 +43,7 @@ def _mock_extractor(return_value: ArticleExtraction = DUMMY_EXTRACTION) -> Magic
     ext = MagicMock()
     ext.name = "mock"
     ext.extract.return_value = return_value
+    ext.extract_async = AsyncMock(return_value=return_value)
     return ext
 
 
@@ -107,7 +108,7 @@ class TestExtractBatch:
         extractor.extract.side_effect = side_effect
         articles = [ARTICLE_WITH_ABSTRACT, ARTICLE_WITH_ABSTRACT]
 
-        results = extract_batch(articles, extractor)
+        results = extract_batch(articles, extractor, max_concurrency=1)
 
         assert len(results) == 1
 
@@ -115,6 +116,33 @@ class TestExtractBatch:
         extractor = _mock_extractor()
         results = extract_batch([], extractor)
         assert results == []
+
+    def test_concurrent_processes_all_articles(self):
+        extractor = _mock_extractor()
+        articles = [ARTICLE_WITH_ABSTRACT] * 5
+
+        results = extract_batch(articles, extractor, max_concurrency=3)
+
+        assert len(results) == 5
+        assert all(ext == DUMMY_EXTRACTION for _, ext in results)
+
+    def test_concurrent_skips_failed_extractions(self):
+        extractor = _mock_extractor()
+        call_count = 0
+
+        async def async_side_effect(article):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("boom")
+            return DUMMY_EXTRACTION
+
+        extractor.extract_async = AsyncMock(side_effect=async_side_effect)
+        articles = [ARTICLE_WITH_ABSTRACT] * 3
+
+        results = extract_batch(articles, extractor, max_concurrency=3)
+
+        assert len(results) == 2
 
 
 class TestExtractBatchBudget:
@@ -148,7 +176,7 @@ class TestExtractBatchBudget:
         extractor.extract.side_effect = extract_and_record
         articles = [ARTICLE_WITH_ABSTRACT] * 100
 
-        results = extract_batch(articles, extractor, cost_tracker=tracker)
+        results = extract_batch(articles, extractor, cost_tracker=tracker, max_concurrency=1)
 
         assert len(results) < 100
         assert len(results) > 0

@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import sqlite3
 import zlib
-from datetime import date
+from datetime import date, datetime, timezone
 
 from alpha_signal.cache.sqlite import SQLiteArticleCache
 from alpha_signal.models.articles import Article
+from alpha_signal.models.extractions import ArticleExtraction, Novelty, Sentiment
 
 
 def _make_article(**overrides) -> Article:
@@ -290,3 +291,115 @@ class TestRawCompression:
         assert retrieved.raw == raw_dict
 
         cache.close()
+
+
+def _make_extraction(**overrides) -> ArticleExtraction:
+    defaults = dict(
+        technologies=[],
+        claims=[],
+        novelty=Novelty.novel,
+        sentiment=Sentiment.optimistic,
+        summary="A commercially relevant finding.",
+        extraction_model="gpt-4o-mini",
+        extraction_timestamp=datetime(2024, 6, 15, 12, 0, 0, tzinfo=timezone.utc),
+    )
+    defaults.update(overrides)
+    return ArticleExtraction(**defaults)
+
+
+class TestExtractionPersistence:
+    def test_put_and_get_extraction(self):
+        extraction = _make_extraction()
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put(_make_article())
+            cache.put_extraction("test", "1", extraction)
+            retrieved = cache.get_extraction("test", "1", model="gpt-4o-mini")
+
+        assert retrieved is not None
+        assert retrieved.summary == extraction.summary
+        assert retrieved.extraction_model == "gpt-4o-mini"
+        assert retrieved.novelty == Novelty.novel
+
+    def test_get_extraction_returns_none_when_absent(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            assert cache.get_extraction("test", "1") is None
+
+    def test_get_extraction_latest_when_no_model(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put(_make_article())
+            cache.put_extraction(
+                "test", "1",
+                _make_extraction(
+                    extraction_model="gpt-4o-mini",
+                    extraction_timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+                ),
+            )
+            cache.put_extraction(
+                "test", "1",
+                _make_extraction(
+                    extraction_model="claude-sonnet-4-20250514",
+                    extraction_timestamp=datetime(2024, 6, 1, tzinfo=timezone.utc),
+                    summary="Claude extraction.",
+                ),
+            )
+            latest = cache.get_extraction("test", "1")
+
+        assert latest is not None
+        assert latest.extraction_model == "claude-sonnet-4-20250514"
+
+    def test_has_extraction(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put(_make_article())
+            assert cache.has_extraction("test", "1") is False
+            cache.put_extraction("test", "1", _make_extraction())
+            assert cache.has_extraction("test", "1") is True
+            assert cache.has_extraction("test", "1", model="gpt-4o-mini") is True
+            assert cache.has_extraction("test", "1", model="other-model") is False
+
+    def test_put_extractions_batch(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put_many([
+                _make_article(source_id="1"),
+                _make_article(source_id="2"),
+            ])
+            cache.put_extractions([
+                ("test", "1", _make_extraction(summary="First")),
+                ("test", "2", _make_extraction(summary="Second")),
+            ])
+            assert cache.extraction_count() == 2
+
+    def test_extraction_count_by_model(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put_many([
+                _make_article(source_id="1"),
+                _make_article(source_id="2"),
+            ])
+            cache.put_extractions([
+                ("test", "1", _make_extraction(extraction_model="gpt-4o-mini")),
+                ("test", "2", _make_extraction(extraction_model="gpt-4o-mini")),
+                ("test", "1", _make_extraction(extraction_model="claude-sonnet-4-20250514")),
+            ])
+            assert cache.extraction_count() == 3
+            assert cache.extraction_count(model="gpt-4o-mini") == 2
+            assert cache.extraction_count(model="claude-sonnet-4-20250514") == 1
+
+    def test_all_extractions(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put(_make_article())
+            cache.put_extraction("test", "1", _make_extraction())
+            results = cache.all_extractions()
+
+        assert len(results) == 1
+        source, source_id, extraction = results[0]
+        assert source == "test"
+        assert source_id == "1"
+        assert extraction.novelty == Novelty.novel
+
+    def test_overwrite_same_model(self):
+        with SQLiteArticleCache(":memory:") as cache:
+            cache.put(_make_article())
+            cache.put_extraction("test", "1", _make_extraction(summary="v1"))
+            cache.put_extraction("test", "1", _make_extraction(summary="v2"))
+            assert cache.extraction_count() == 1
+            retrieved = cache.get_extraction("test", "1", model="gpt-4o-mini")
+            assert retrieved.summary == "v2"
