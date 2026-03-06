@@ -18,10 +18,12 @@ from alpha_signal.models.articles import Article
 logger = logging.getLogger(__name__)
 
 # Prices per token (USD).  Update when providers change pricing.
+# "local" is a sentinel for local SLM extraction (CPU); cost is always 0.
 MODEL_PRICING: dict[str, dict[str, float]] = {
     "gpt-4o-mini": {"input": 0.15e-6, "output": 0.60e-6},
     "gpt-4o": {"input": 2.50e-6, "output": 10.00e-6},
     "gpt-4-turbo": {"input": 10.00e-6, "output": 30.00e-6},
+    "local": {"input": 0.0, "output": 0.0},
 }
 
 _DEFAULT_OUTPUT_TOKENS_PER_ARTICLE = 400

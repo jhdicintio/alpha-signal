@@ -17,6 +17,9 @@ dependencies = [
     "google-genai (>=1.65.0,<2.0.0)",
 ]
 
+[project.optional-dependencies]
+local = ["torch", "transformers", "peft"]
+
 [[project.authors]]
 name = "Jack DiCintio"
 

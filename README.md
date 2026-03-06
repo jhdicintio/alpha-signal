@@ -136,6 +136,26 @@ Results are written to `extractions.json` with this structure:
 task pipeline QUERY="CRISPR gene therapy" BUDGET=1.00
 ```
 
+### Local SLM extraction (CPU, no API key)
+
+You can run extraction with small language models from Hugging Face on local CPU (including fine-tuned adapters). Install the optional dependencies, then pass `--provider local` and the model id or path:
+
+```bash
+poetry install --extras local
+
+# Off-the-shelf model (e.g. Qwen 0.5B)
+poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --provider local
+
+# Fine-tuned model: use a local path that contains adapter_config.json + weights
+poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
+  --model /path/to/adapter \
+  --provider local
+```
+
+Cost is $0. Use `max_concurrency=1` (or low) for CPU. Articles that fail parse/validation are retried once, then skipped unless you configure a fallback.
+
 ### Direct pyflyte usage
 
 All workflows can also be run directly with pyflyte:

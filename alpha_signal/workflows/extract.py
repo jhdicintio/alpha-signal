@@ -1,25 +1,18 @@
 """Flyte workflows for cost estimation and LLM extraction.
 
-Usage::
+Default is local SLM on CPU (no API key, $0 cost). Usage::
 
-    # Estimate cost (no API calls, free)
-    pyflyte run alpha_signal/workflows/extract.py estimate_wf \
-        --cache_path articles.db \
-        --model gpt-4o-mini
+    # Default: local SLM (Qwen 0.5B on CPU)
+    pyflyte run alpha_signal/workflows/extract.py estimate_wf
+    pyflyte run alpha_signal/workflows/extract.py extract_wf
 
-    # Run extraction (costs money) — provider is auto-detected from model name
+    # Cloud providers — set model and optionally provider (auto-detected from model name)
     pyflyte run alpha_signal/workflows/extract.py extract_wf \
-        --cache_path articles.db \
-        --model gpt-4o-mini \
-        --budget_usd 0.50
-
-    # Anthropic
+        --model gpt-4o-mini --provider openai --budget_usd 0.50
     pyflyte run alpha_signal/workflows/extract.py extract_wf \
-        --model claude-sonnet-4-20250514
-
-    # Gemini
+        --model claude-sonnet-4-20250514 --provider anthropic
     pyflyte run alpha_signal/workflows/extract.py extract_wf \
-        --model gemini-2.0-flash
+        --model gemini-2.0-flash --provider gemini
 """
 
 from __future__ import annotations
@@ -33,6 +26,7 @@ from alpha_signal.cache.sqlite import SQLiteArticleCache
 from alpha_signal.extractors.anthropic import AnthropicExtractor
 from alpha_signal.extractors.base import SYSTEM_PROMPT, BaseExtractor
 from alpha_signal.extractors.gemini import GeminiExtractor
+from alpha_signal.extractors.local import LocalExtractor
 from alpha_signal.extractors.openai import OpenAIExtractor
 from alpha_signal.models.articles import Article
 from alpha_signal.models.extractions import ArticleExtraction
@@ -53,6 +47,7 @@ class Provider(str, Enum):
     openai = "openai"
     anthropic = "anthropic"
     gemini = "gemini"
+    local = "local"
 
 
 _PROVIDER_PREFIXES: list[tuple[str, Provider]] = [
@@ -71,7 +66,7 @@ def _detect_provider(model: str) -> Provider:
             return provider
     raise ValueError(
         f"Cannot detect provider for model {model!r}. "
-        f"Pass an explicit --provider or use a model name starting with "
+        f"Pass an explicit --provider (e.g. local) or use a model name starting with "
         f"gpt-/claude-/gemini-."
     )
 
@@ -88,17 +83,24 @@ def _build_extractor(
         return AnthropicExtractor(model=model)
     if prov == Provider.gemini:
         return GeminiExtractor(model=model)
+    if prov == Provider.local:
+        return LocalExtractor(model=model, cost_tracker=cost_tracker)
     raise ValueError(f"Unknown provider: {prov}")
+
+
+_DEFAULT_LOCAL_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 
 @task
 def estimate_cost(
     cache_path: str = "articles.db",
-    model: str = "gpt-4o-mini",
+    model: str = _DEFAULT_LOCAL_MODEL,
+    provider: str | None = "local",
 ) -> str:
     """Estimate extraction cost for all cached articles (no API calls).
 
-    Returns a formatted cost summary string.
+    Default is local SLM (no API cost). Returns a formatted cost summary string.
+    For local provider, cost is $0.
     """
     with SQLiteArticleCache(cache_path) as cache:
         articles = cache.all()
@@ -108,7 +110,8 @@ def estimate_cost(
         logger.warning("%s", msg)
         return msg
 
-    extractor = OpenAIExtractor(api_key="unused", model=model)
+    prov = Provider(provider) if (provider and str(provider).strip()) else None
+    extractor = _build_extractor(model, provider=prov)
     estimate = extractor.estimate_cost(articles)
 
     lines = [
@@ -129,12 +132,15 @@ def estimate_cost(
 @task
 def extract(
     cache_path: str = "articles.db",
-    model: str = "gemini-2.5-flash",
+    model: str = _DEFAULT_LOCAL_MODEL,
     budget_usd: float = 1.0,
     skip_existing: bool = True,
-    max_concurrency: int = 10,
+    max_concurrency: int = 1,
+    provider: str | None = "local",
 ) -> str:
     """Run LLM extraction on cached articles and persist results.
+
+    Default is local SLM on CPU (no API key, $0 cost). Use max_concurrency=1 for CPU.
 
     Extractions are stored in the same SQLite database alongside articles.
     When *skip_existing* is True, articles that already have an extraction
@@ -173,8 +179,9 @@ def extract(
 
         logger.info("  %d articles to extract", len(articles))
 
+        prov = Provider(provider) if (provider and str(provider).strip()) else None
         tracker = CostTracker(model=model, budget_usd=budget_usd)
-        extractor = _build_extractor(model, cost_tracker=tracker)
+        extractor = _build_extractor(model, provider=prov, cost_tracker=tracker)
 
         def _persist(article: Article, extraction: ArticleExtraction) -> None:
             cache.put_extraction(article.source, article.source_id, extraction)
@@ -199,25 +206,28 @@ def extract(
 @workflow
 def estimate_wf(
     cache_path: str = "articles.db",
-    model: str = "gpt-4o-mini",
+    model: str = _DEFAULT_LOCAL_MODEL,
+    provider: str | None = "local",
 ) -> str:
-    """Estimate extraction cost without spending anything."""
-    return estimate_cost(cache_path=cache_path, model=model)
+    """Estimate extraction cost without spending anything. Default is local SLM."""
+    return estimate_cost(cache_path=cache_path, model=model, provider=provider)
 
 
 @workflow
 def extract_wf(
     cache_path: str = "articles.db",
-    model: str = "gemini-2.5-flash",
+    model: str = _DEFAULT_LOCAL_MODEL,
     budget_usd: float = 1.0,
     skip_existing: bool = True,
-    max_concurrency: int = 10,
+    max_concurrency: int = 1,
+    provider: str | None = "local",
 ) -> str:
-    """Run LLM extraction on cached articles with budget enforcement."""
+    """Run LLM extraction on cached articles. Default is local SLM on CPU."""
     return extract(
         cache_path=cache_path,
         model=model,
         budget_usd=budget_usd,
         skip_existing=skip_existing,
         max_concurrency=max_concurrency,
+        provider=provider,
     )
