@@ -45,6 +45,16 @@ def extract_article(
             article.source,
         )
         return result
+    except ImportError:
+        # Missing optional deps (e.g. [local]) — fail fast so user sees one clear error
+        raise
+    except RuntimeError as e:
+        # Device/setup errors (e.g. CUDA not available) — fail fast so batch stops
+        msg = str(e).lower()
+        if "cuda" in msg or "device" in msg or "torch not compiled" in msg:
+            raise
+        logger.exception("extraction failed for article %s", article.source_id)
+        return None
     except Exception:
         logger.exception("extraction failed for article %s", article.source_id)
         return None

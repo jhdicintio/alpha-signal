@@ -11,6 +11,7 @@ from alpha_signal.extractors.local import (
     LocalExtractionError,
     LocalExtractor,
     _fallback_extraction,
+    _normalize_extraction_dict,
 )
 from alpha_signal.models.articles import Article
 from alpha_signal.models.extractions import (
@@ -127,6 +128,45 @@ class TestLocalExtractorEstimateCost:
         assert estimate.model == "Qwen/Qwen2.5-0.5B-Instruct"
         assert estimate.num_articles == 2
         assert estimate.estimated_cost_usd == 0.0
+
+
+class TestNormalizeExtractionDict:
+    """_normalize_extraction_dict fixes common SLM output so validation succeeds."""
+
+    def test_lab_scale_variants(self):
+        data = {
+            "technologies": [
+                {"technology": "x", "sector": "y", "maturity": "lab-scale", "relevance": "z"},
+            ],
+            "claims": [],
+            "novelty": "review",
+            "sentiment": "neutral",
+            "summary": "S",
+        }
+        out = _normalize_extraction_dict(data)
+        assert out["technologies"][0]["maturity"] == "lab_scale"
+
+    def test_quantitative_string_coerced_to_bool(self):
+        data = {
+            "technologies": [],
+            "claims": [{"statement": "23%", "quantitative": "true"}],
+            "novelty": "novel",
+            "sentiment": "optimistic",
+            "summary": "S",
+        }
+        out = _normalize_extraction_dict(data)
+        assert out["claims"][0]["quantitative"] is True
+
+    def test_missing_summary_defaults(self):
+        data = {
+            "technologies": [],
+            "claims": [],
+            "novelty": "incremental",
+            "sentiment": "cautious",
+        }
+        out = _normalize_extraction_dict(data)
+        assert "summary" in out
+        assert isinstance(out["summary"], str)
 
 
 class TestFallbackExtraction:

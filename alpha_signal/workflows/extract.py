@@ -75,6 +75,7 @@ def _build_extractor(
     model: str,
     provider: Provider | None = None,
     cost_tracker: CostTracker | None = None,
+    device: str | None = None,
 ) -> BaseExtractor:
     prov = provider or _detect_provider(model)
     if prov == Provider.openai:
@@ -84,7 +85,11 @@ def _build_extractor(
     if prov == Provider.gemini:
         return GeminiExtractor(model=model)
     if prov == Provider.local:
-        return LocalExtractor(model=model, cost_tracker=cost_tracker)
+        return LocalExtractor(
+            model=model,
+            cost_tracker=cost_tracker,
+            device=device or "cpu",
+        )
     raise ValueError(f"Unknown provider: {prov}")
 
 
@@ -137,10 +142,12 @@ def extract(
     skip_existing: bool = True,
     max_concurrency: int = 1,
     provider: str | None = "local",
+    device: str | None = None,
 ) -> str:
     """Run LLM extraction on cached articles and persist results.
 
-    Default is local SLM on CPU (no API key, $0 cost). Use max_concurrency=1 for CPU.
+    Default is local SLM on CPU (no API key, $0 cost). For GPU pass device=cuda.
+    CPU: keep max_concurrency=1. GPU: try 2–4 to overlap work.
 
     Extractions are stored in the same SQLite database alongside articles.
     When *skip_existing* is True, articles that already have an extraction
@@ -181,7 +188,9 @@ def extract(
 
         prov = Provider(provider) if (provider and str(provider).strip()) else None
         tracker = CostTracker(model=model, budget_usd=budget_usd)
-        extractor = _build_extractor(model, provider=prov, cost_tracker=tracker)
+        extractor = _build_extractor(
+            model, provider=prov, cost_tracker=tracker, device=device
+        )
 
         def _persist(article: Article, extraction: ArticleExtraction) -> None:
             cache.put_extraction(article.source, article.source_id, extraction)
@@ -221,6 +230,7 @@ def extract_wf(
     skip_existing: bool = True,
     max_concurrency: int = 1,
     provider: str | None = "local",
+    device: str | None = None,
 ) -> str:
     """Run LLM extraction on cached articles. Default is local SLM on CPU."""
     return extract(
@@ -230,4 +240,5 @@ def extract_wf(
         skip_existing=skip_existing,
         max_concurrency=max_concurrency,
         provider=provider,
+        device=device,
     )

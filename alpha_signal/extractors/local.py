@@ -19,15 +19,105 @@ from alpha_signal.monitoring.costs import CostEstimate, CostTracker
 
 logger = logging.getLogger(__name__)
 
+# Exact enum values the schema accepts (used in prompt and normalizer)
+MATURITY_VALUES = ("theoretical", "lab_scale", "pilot", "commercial")
+NOVELTY_VALUES = ("novel", "incremental", "review")
+SENTIMENT_VALUES = ("optimistic", "neutral", "cautious", "negative")
+
 JSON_INSTRUCTIONS = """
 
-Respond with only a single JSON object, no other text or markdown. Use exactly these keys:
-- "technologies": list of objects with "technology", "sector", "maturity" (one of: theoretical, lab_scale, pilot, commercial), "relevance"
-- "claims": list of objects with "statement", "quantitative" (boolean)
-- "novelty": one of "novel", "incremental", "review"
-- "sentiment": one of "optimistic", "neutral", "cautious", "negative"
-- "summary": one sentence string
+Output ONLY valid JSON. No markdown, no code fence, no explanation before or after.
+
+Required keys and types:
+- "technologies": array of objects, each with: "technology" (string), "sector" (string), "maturity" (string), "relevance" (string). Use empty array [] if none.
+- "claims": array of objects, each with: "statement" (string), "quantitative" (boolean true/false). Use empty array [] if none.
+- "novelty": string, exactly one of: novel, incremental, review
+- "sentiment": string, exactly one of: optimistic, neutral, cautious, negative
+- "summary": string, one sentence
+
+Maturity must be exactly one of: theoretical, lab_scale, pilot, commercial (use underscore in lab_scale).
+
+Example (copy this structure):
+{"technologies":[{"technology":"perovskite solar cells","sector":"Renewable Energy","maturity":"lab_scale","relevance":"Could improve solar efficiency."}],"claims":[{"statement":"23% efficiency","quantitative":true}],"novelty":"novel","sentiment":"neutral","summary":"New perovskite design improves efficiency."}
 """
+
+
+def _normalize_enum(value: str, allowed: tuple[str, ...]) -> str:
+    """Map common SLM variants to exact schema enum value."""
+    if not value or not isinstance(value, str):
+        return allowed[0]
+    v = value.strip().lower().replace("-", "_").replace(" ", "_")
+    for a in allowed:
+        if v == a or v == a.replace("_", ""):
+            return a
+    return allowed[0]
+
+
+def _normalize_extraction_dict(data: dict) -> dict:
+    """Coerce common SLM output quirks so ArticleExtraction.model_validate succeeds."""
+    data = dict(data)
+    # Top-level enums
+    for key, allowed in (
+        ("novelty", NOVELTY_VALUES),
+        ("sentiment", SENTIMENT_VALUES),
+    ):
+        if key in data and data[key] is not None:
+            data[key] = _normalize_enum(str(data[key]), allowed)
+        elif key not in data:
+            data[key] = allowed[0]
+    if "summary" not in data or data["summary"] is None:
+        data["summary"] = "No summary extracted."
+    elif not isinstance(data["summary"], str):
+        data["summary"] = str(data["summary"])[:2000]
+
+    # technologies: list of {technology, sector, maturity, relevance}
+    techs = data.get("technologies")
+    if techs is not None and isinstance(techs, list):
+        out_techs = []
+        for t in techs:
+            if not isinstance(t, dict):
+                continue
+            t = dict(t)
+            if "maturity" in t and t["maturity"] is not None:
+                t["maturity"] = _normalize_enum(str(t["maturity"]), MATURITY_VALUES)
+            for k in ("technology", "sector", "relevance"):
+                if k not in t or t[k] is None:
+                    t[k] = ""
+                elif not isinstance(t[k], str):
+                    t[k] = str(t[k])
+            if "technology" in t and "sector" in t and "maturity" in t and "relevance" in t:
+                out_techs.append(t)
+        data["technologies"] = out_techs
+    else:
+        data["technologies"] = []
+
+    # claims: list of {statement, quantitative}
+    claims = data.get("claims")
+    if claims is not None and isinstance(claims, list):
+        out_claims = []
+        for c in claims:
+            if not isinstance(c, dict):
+                continue
+            c = dict(c)
+            if "statement" not in c or c["statement"] is None:
+                c["statement"] = ""
+            elif not isinstance(c["statement"], str):
+                c["statement"] = str(c["statement"])
+            q = c.get("quantitative")
+            if isinstance(q, bool):
+                c["quantitative"] = q
+            elif isinstance(q, str):
+                c["quantitative"] = q.strip().lower() in ("true", "1", "yes")
+            elif isinstance(q, (int, float)):
+                c["quantitative"] = bool(q)
+            else:
+                c["quantitative"] = False
+            out_claims.append(c)
+        data["claims"] = out_claims
+    else:
+        data["claims"] = []
+
+    return data
 
 
 class LocalExtractionError(Exception):
@@ -98,6 +188,14 @@ class LocalExtractor(BaseExtractor):
                 "Local extractor requires optional dependencies: pip install -e '.[local]'"
             ) from e
 
+        if self._device.startswith("cuda"):
+            import torch
+            if not torch.cuda.is_available():
+                raise RuntimeError(
+                    "device=cuda requested but CUDA is not available "
+                    "(PyTorch was not built with CUDA, or no GPU). Use device=cpu."
+                )
+
         load_path = self._model_path
         path_obj = Path(load_path)
         adapter_config = path_obj / "adapter_config.json"
@@ -142,6 +240,17 @@ class LocalExtractor(BaseExtractor):
                 trust_remote_code=True,
             )
         self._model_obj.eval()
+
+        # Optional: compile on GPU for faster inference (PyTorch 2+)
+        if self._device.startswith("cuda"):
+            try:
+                import torch
+                if hasattr(torch, "compile"):
+                    self._model_obj = torch.compile(
+                        self._model_obj, mode="reduce-overhead"
+                    )
+            except Exception as e:
+                logger.debug("torch.compile skipped: %s", e)
 
     def _run_generation(self, article: Article) -> tuple[str, int, int]:
         """Return (decoded_text, input_token_count, output_token_count)."""
@@ -197,6 +306,7 @@ class LocalExtractor(BaseExtractor):
             return None
         for key in ("extraction_model", "extraction_timestamp"):
             data.pop(key, None)
+        data = _normalize_extraction_dict(data)
         try:
             extraction = ArticleExtraction.model_validate(data)
         except Exception:
@@ -231,8 +341,19 @@ class LocalExtractor(BaseExtractor):
                         )
                     return extraction
                 last_error = "JSON parse or validation failed"
+            except ImportError:
+                # Missing [local] deps — fail fast so user sees one clear error
+                raise
+            except RuntimeError as e:
+                # Device/setup errors (e.g. CUDA not available) — fail fast, don't retry
+                msg = str(e).lower()
+                if "cuda" in msg or "torch not compiled" in msg or "device" in msg:
+                    raise
+                last_error = str(e)
             except Exception as e:
                 last_error = str(e)
+                if "optional dependencies" in str(e).lower():
+                    raise
 
             logger.warning(
                 "parse/validation failure for article %s (attempt %d): %s",

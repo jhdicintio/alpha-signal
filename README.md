@@ -156,6 +156,20 @@ poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
 
 Cost is $0. Use `max_concurrency=1` (or low) for CPU. Articles that fail parse/validation are retried once, then skipped unless you configure a fallback.
 
+**Optimizing local extraction**
+
+- **GPU**: Use a CUDA device for much faster inference. Pass `--device cuda` (or `cuda:0`, `cuda:1`, etc.). The model is automatically compiled with `torch.compile` on GPU when available (PyTorch 2+).
+- **Parallelism on GPU**: With `--device cuda`, try `--max_concurrency 2` or `4` to overlap tokenization and I/O with generation. On CPU, keep `max_concurrency=1` to avoid thrashing.
+- **CPU**: PyTorch uses multiple threads by default for matmul. To cap or tune: set `OMP_NUM_THREADS` or `MKL_NUM_THREADS` before running (e.g. `OMP_NUM_THREADS=8`).
+
+Example with GPU and higher concurrency:
+
+```bash
+poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
+  --model Qwen/Qwen2.5-0.5B-Instruct --provider local \
+  --device cuda --max_concurrency 4
+```
+
 ### Direct pyflyte usage
 
 All workflows can also be run directly with pyflyte:
