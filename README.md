@@ -12,14 +12,12 @@ Sources (arXiv, OpenAlex, Semantic Scholar, Europe PMC, Springer)
     ▼
 ┌──────────┐     ┌───────────┐     ┌────────────┐
 │  Ingest  │────▶│   Cache   │────▶│  Extract   │
-│ (search, │     │ (SQLite)  │     │ (OpenAI    │
-│  dedup)  │     │           │     │  LLM)      │
+│ (search, │     │ (SQLite)  │◀────│ (any LLM)  │
+│  dedup)  │     │           │     │            │
 └──────────┘     └───────────┘     └────────────┘
-                                         │
-                                         ▼
-                                   extractions.json
-                                   (technologies, sectors,
-                                    maturity, claims)
+                       │
+     articles + extracted fields (technologies, sectors,
+     maturity, claims) live in SQLite; can export to extractions.json
 ```
 
 **Key modules:**
@@ -54,7 +52,8 @@ poetry install
 Create a `.env` file in the project root:
 
 ```bash
-OPENAI_API_KEY=sk-your-key-here
+OPENAI_API_KEY=...
+GOOGLE_API_KEY=...
 ```
 
 Load it in your shell (or use [direnv](https://direnv.net/)):
