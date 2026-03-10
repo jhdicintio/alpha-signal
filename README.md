@@ -4,6 +4,18 @@ Turn unstructured scientific articles into actionable trading insights.
 
 Alpha Signal ingests abstracts from multiple scientific article databases, uses LLMs to extract structured data (technologies, sectors, maturity levels, claims), and surfaces signals that could inform trades on emerging technologies.
 
+## Repository layout
+
+There is **no root Poetry project**. Two independent projects:
+
+| Path | Purpose |
+|------|---------|
+| **`alpha_signal/`** | Standalone Poetry project: the core service (ingestion, extraction, models, workflows, tests). Install with `cd alpha_signal && poetry install` or `task install`. |
+| **`backend/`** | Flask API (own Poetry project, path dependency `../alpha_signal`). |
+| **`frontend/`** | React SPA (Vite). |
+
+No inheritance: the platform depends on the alpha_signal **project** only as a path dependency; they are sibling projects.
+
 ## Architecture
 
 ```
@@ -20,16 +32,17 @@ Sources (arXiv, OpenAlex, Semantic Scholar, Europe PMC, Springer)
      maturity, claims) live in SQLite; can export to extractions.json
 ```
 
-**Key modules:**
+**Key modules** (inside `alpha_signal/alpha_signal/`):
 
 | Package | Purpose |
-|---|---|
+|---------|---------|
 | `sources/` | OOP wrappers for scientific article APIs |
 | `cache/` | SQLite persistence for ingested articles |
 | `extractors/` | LLM-powered structured extraction |
 | `monitoring/` | Token counting, cost estimation, budget enforcement |
 | `services/` | Orchestration functions (ingestion, extraction) |
 | `workflows/` | Flyte tasks and workflows for the full pipeline |
+| `tests/` | Unit and integration tests |
 
 ## Quick Start
 
@@ -44,8 +57,10 @@ Sources (arXiv, OpenAlex, Semantic Scholar, Europe PMC, Springer)
 ```bash
 git clone <your-repo-url>
 cd alpha-signal
-poetry install
+task install   # installs the alpha_signal service (cd alpha_signal && poetry install)
 ```
+
+To run the platform: `cd backend && poetry install` and `cd frontend && npm install`.
 
 ### Set up environment
 
@@ -140,15 +155,15 @@ task pipeline QUERY="CRISPR gene therapy" BUDGET=1.00
 You can run extraction with small language models from Hugging Face on local CPU (including fine-tuned adapters). Install the optional dependencies, then pass `--provider local` and the model id or path:
 
 ```bash
-poetry install --extras local
+cd alpha_signal && poetry install --extras local
 
 # Off-the-shelf model (e.g. Qwen 0.5B)
-poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
+cd alpha_signal && poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --provider local
 
 # Fine-tuned model: use a local path that contains adapter_config.json + weights
-poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
+cd alpha_signal && poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
   --model /path/to/adapter \
   --provider local
 ```
@@ -164,28 +179,30 @@ Cost is $0. Use `max_concurrency=1` (or low) for CPU. Articles that fail parse/v
 Example with GPU and higher concurrency:
 
 ```bash
-poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
+cd alpha_signal && poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
   --model Qwen/Qwen2.5-0.5B-Instruct --provider local \
   --device cuda --max_concurrency 4
 ```
 
 ### Direct pyflyte usage
 
-All workflows can also be run directly with pyflyte:
+From the **alpha_signal** project directory (or use `task ingest`, `task extract`, etc. from repo root):
 
 ```bash
-poetry run pyflyte run src/alpha_signal/workflows/ingest.py ingest_wf \
+cd alpha_signal
+
+poetry run pyflyte run alpha_signal/workflows/ingest.py ingest_wf \
     --query "perovskite solar cells" \
     --sources "arxiv,openalex,europe_pmc" \
     --max_results_per_source 20
 
 # Optional date range (YYYY-MM-DD)
-poetry run pyflyte run src/alpha_signal/workflows/ingest.py ingest_wf \
+poetry run pyflyte run alpha_signal/workflows/ingest.py ingest_wf \
     --query "battery" --date_from 2024-01-01 --date_to 2024-12-31
 
-poetry run pyflyte run src/alpha_signal/workflows/extract.py estimate_wf
+poetry run pyflyte run alpha_signal/workflows/extract.py estimate_wf
 
-poetry run pyflyte run src/alpha_signal/workflows/extract.py extract_wf \
+poetry run pyflyte run alpha_signal/workflows/extract.py extract_wf \
     --budget_usd 0.50
 ```
 
@@ -205,6 +222,16 @@ task test-integration  # integration only
 task lint
 task fmt
 ```
+
+### Platform (frontend + backend)
+
+A read-only Flask API and React frontend in `backend/` and `frontend/` let you browse articles and extractions in the browser.
+
+1. Install backend: `cd backend && poetry install`
+2. Install frontend: `cd frontend && npm install`
+3. From repo root, run both: `task platform` (or run `task platform-backend` and `task platform-frontend` in two terminals)
+
+Backend: http://127.0.0.1:5000. Frontend: http://localhost:5173 (proxies `/api` to the backend). Set `ALPHA_SIGNAL_DB_PATH` if your SQLite DB is not at repo root `articles.db`.
 
 ### Available sources
 

@@ -5,45 +5,54 @@ vars:
   IMAGE_TAG: latest
 
 tasks:
+  # -- Alpha Signal service (standalone Poetry project) -----------------------
+
   install:
-    desc: Install all project dependencies
+    desc: Install alpha_signal service dependencies
+    dir: alpha_signal
     cmds:
       - poetry install
 
   test:
     desc: Run the test suite (unit tests only by default)
+    dir: alpha_signal
     cmds:
-      - poetry run pytest tests/unit/ -v {{.CLI_ARGS}}
+      - poetry run pytest alpha_signal/tests/unit/ -v {{.CLI_ARGS}}
 
   test-all:
     desc: Run all tests including integration (hits live APIs)
+    dir: alpha_signal
     cmds:
       - poetry run pytest -v {{.CLI_ARGS}}
 
   test-integration:
     desc: Run only integration tests
+    dir: alpha_signal
     cmds:
       - poetry run pytest -m integration -v {{.CLI_ARGS}}
 
   lint:
-    desc: Run linter
+    desc: Run linter (alpha_signal service)
+    dir: alpha_signal
     cmds:
-      - poetry run ruff check src/ tests/
+      - poetry run ruff check alpha_signal/
 
   fmt:
-    desc: Auto-format code
+    desc: Auto-format code (alpha_signal service)
+    dir: alpha_signal
     cmds:
-      - poetry run ruff format src/ tests/
-      - poetry run ruff check --fix src/ tests/
+      - poetry run ruff format alpha_signal/
+      - poetry run ruff check --fix alpha_signal/
 
   # -- Flyte workflows -------------------------------------------------------
 
   ingest:
     desc: Ingest articles from scientific sources into local cache
+    dir: alpha_signal
     cmds:
       - >-
         poetry run pyflyte run
-        src/alpha_signal/workflows/ingest.py ingest_wf
+        alpha_signal/workflows/ingest.py ingest_wf
         --query "{{.QUERY}}"
         --sources "{{.SOURCES | default "arxiv,openalex,europe_pmc"}}"
         --max_results_per_source {{.MAX_RESULTS | default "20"}}
@@ -55,19 +64,21 @@ tasks:
 
   estimate:
     desc: Estimate extraction cost (free — no API calls)
+    dir: alpha_signal
     cmds:
       - >-
         poetry run pyflyte run
-        src/alpha_signal/workflows/extract.py estimate_wf
+        alpha_signal/workflows/extract.py estimate_wf
         --cache_path {{.CACHE_PATH | default "articles.db"}}
         --model {{.MODEL | default "gpt-4o-mini"}}
 
   extract:
     desc: Run LLM extraction on cached articles
+    dir: alpha_signal
     cmds:
       - >-
         poetry run pyflyte run
-        src/alpha_signal/workflows/extract.py extract_wf
+        alpha_signal/workflows/extract.py extract_wf
         --cache_path {{.CACHE_PATH | default "articles.db"}}
         --model {{.MODEL | default "gpt-4o-mini"}}
         --budget_usd {{.BUDGET | default "1.0"}}
@@ -75,10 +86,11 @@ tasks:
 
   pipeline:
     desc: Full pipeline — ingest then extract
+    dir: alpha_signal
     cmds:
       - >-
         poetry run pyflyte run
-        src/alpha_signal/workflows/pipeline.py pipeline_wf
+        alpha_signal/workflows/pipeline.py pipeline_wf
         --query "{{.QUERY}}"
         --sources "{{.SOURCES | default "arxiv,openalex,europe_pmc"}}"
         --max_results_per_source {{.MAX_RESULTS | default "20"}}
@@ -89,9 +101,44 @@ tasks:
     requires:
       vars: [QUERY]
 
+  # -- Platform (frontend + backend) ------------------------------------------
+
+  platform-backend:
+    desc: Run the Flask API (platform backend)
+    dir: backend
+    env:
+      FLASK_APP: app:create_app
+      FLASK_RUN_PORT: "5001"
+    cmds:
+      # Unset root venv so Poetry uses backend/.venv; install deps then run server
+      - unset VIRTUAL_ENV && poetry install --no-interaction && .venv/bin/flask run
+
+  platform-frontend:
+    desc: Run the Vite dev server (platform frontend)
+    dir: frontend
+    cmds:
+      - npm run dev
+
+  platform:
+    desc: Run backend and frontend together (requires npx)
+    cmds:
+      - npx concurrently -k "task platform-backend" "task platform-frontend"
+
   # -- Docker ----------------------------------------------------------------
 
   docker-build:
-    desc: Build the Docker image
+    desc: Build the alpha_signal Docker image
+    dir: alpha_signal
     cmds:
       - docker build -t {{.IMAGE_NAME}}:{{.IMAGE_TAG}} .
+
+  docker-build-platform-backend:
+    desc: Build the platform backend Docker image (run from repo root)
+    cmds:
+      - docker build -t alpha-signal-platform-backend:{{.IMAGE_TAG}} -f backend/Dockerfile .
+
+  docker-build-platform-frontend:
+    desc: Build the platform frontend Docker image
+    dir: frontend
+    cmds:
+      - docker build -t alpha-signal-platform-frontend:{{.IMAGE_TAG}} .
